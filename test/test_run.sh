@@ -232,6 +232,39 @@ assert "related --lines 10 11 excludes f-003" "$BDD --json related src/calculato
 # Verify --lines 20 21 finds only f-003
 assert_contains "related --lines 20 21 finds f-003" "$BDD --json related src/calculator.py --lines 20 21 | python3 -c \"import sys,json; r=json.load(sys.stdin)['related']; print(r[0]['facet_ids'] if r else [])\"" "f-003"
 
+# --- Phase 6: Setup Command ---
+echo "Phase 6: Setup Command"
+
+SETUP_DIR=$(mktemp -d)
+
+# Setup on fresh directory
+$BDD setup "$SETUP_DIR" >/dev/null 2>&1
+assert "setup creates .claude" "test -d $SETUP_DIR/.claude && echo yes" "yes"
+assert "setup creates catalog" "test -f $SETUP_DIR/catalog.json && echo yes" "yes"
+assert "setup creates setup.md" "test -f $SETUP_DIR/.claude/rules/setup.md && echo yes" "yes"
+
+# Setup goal has priority 0
+assert "setup goal priority 0" "cd $SETUP_DIR && $BDD --json show g-001 | python3 -c \"import sys,json; print(json.load(sys.stdin)['node']['priority'])\"" "0"
+
+# bdd next returns setup expectation first
+assert_contains "next returns setup expectation" "cd $SETUP_DIR && $BDD next" "coverage tooling"
+
+# Setup on existing catalog preserves existing nodes
+SETUP_DIR2=$(mktemp -d)
+cd "$SETUP_DIR2"
+$BDD init >/dev/null
+$BDD add goal "My existing goal" >/dev/null
+$BDD setup "$SETUP_DIR2" >/dev/null 2>&1
+assert "existing goal preserved" "cd $SETUP_DIR2 && $BDD --json show g-001 | python3 -c \"import sys,json; print(json.load(sys.stdin)['node']['text'])\"" "My existing goal"
+assert "setup goal added as g-002" "cd $SETUP_DIR2 && $BDD --json show g-002 | python3 -c \"import sys,json; print(json.load(sys.stdin)['node']['text'])\"" "The project is set up for BDD development"
+
+# Re-running setup doesn't duplicate setup nodes
+$BDD setup "$SETUP_DIR2" --force >/dev/null 2>&1
+assert "no duplicate setup goals" "cd $SETUP_DIR2 && $BDD --json status | python3 -c \"import sys,json; print(json.load(sys.stdin)['goals'])\"" "2"
+
+rm -rf "$SETUP_DIR" "$SETUP_DIR2"
+cd "$TEST_DIR"
+
 echo ""
 
 # --- Summary ---

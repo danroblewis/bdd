@@ -639,6 +639,269 @@ def cmd_coverage(args):
         print(f"Coverage map updated: {len(serializable)} files, {total_lines} lines mapped")
         print(f"Written to {coverage_map_path}")
 
+SETUP_NODES = [
+    {
+        "type": "goal",
+        "text": "The project is set up for BDD development",
+        "priority": 0,
+        "labels": ["setup"],
+    },
+    {
+        "type": "expectation",
+        "text": "Per-test coverage tooling is installed and working",
+        "parent_ref": "setup_goal",
+        "priority": 0,
+        "labels": ["setup"],
+    },
+    {
+        "type": "facet",
+        "text": "The coverage tool for this project's language is installed",
+        "parent_ref": "coverage_exp",
+    },
+    {
+        "type": "facet",
+        "text": "Running the test command produces a per-test coverage report",
+        "parent_ref": "coverage_exp",
+    },
+    {
+        "type": "facet",
+        "text": "bdd coverage parses the report and generates coverage_map.json",
+        "parent_ref": "coverage_exp",
+    },
+    {
+        "type": "expectation",
+        "text": "Project details are documented in .claude/CLAUDE.md",
+        "parent_ref": "setup_goal",
+        "priority": 0,
+        "labels": ["setup"],
+    },
+    {
+        "type": "facet",
+        "text": "Stack, build command, and test-with-coverage command are filled in",
+        "parent_ref": "docs_exp",
+    },
+    {
+        "type": "facet",
+        "text": "Key paths are documented",
+        "parent_ref": "docs_exp",
+    },
+    {
+        "type": "expectation",
+        "text": "Behavior test infrastructure exists and works",
+        "parent_ref": "setup_goal",
+        "priority": 0,
+        "labels": ["setup"],
+    },
+    {
+        "type": "facet",
+        "text": "A tests/ directory exists with at least one behavior test",
+        "parent_ref": "tests_exp",
+    },
+    {
+        "type": "facet",
+        "text": "The behavior test exercises the full program (not isolated units)",
+        "parent_ref": "tests_exp",
+    },
+    {
+        "type": "facet",
+        "text": "The behavior test is linked to a catalog facet via bdd link",
+        "parent_ref": "tests_exp",
+    },
+]
+
+SETUP_RULE = """\
+# Project Setup Guide
+
+This file is read by the planning agent when working on setup expectations.
+It explains how to set up per-test coverage and behavior test infrastructure.
+
+## Step 1: Detect the Project Language
+
+Check for these files to determine the stack:
+- `Cargo.toml` → Rust
+- `package.json` → Node.js
+- `pyproject.toml` / `setup.py` / `requirements.txt` → Python
+- `go.mod` → Go
+
+If no project files exist, ask the human what language to use, then create
+the initial project structure (e.g., `cargo init`, `npm init`, etc.).
+
+## Step 2: Install Per-Test Coverage Tooling
+
+### Rust
+```bash
+rustup component add llvm-tools-preview
+cargo install cargo-llvm-cov
+```
+Test command: `cargo llvm-cov --lcov --output-path coverage.lcov && bdd coverage --file coverage.lcov`
+
+Note: For per-test granularity with Rust, run each integration test separately
+with `cargo llvm-cov` and merge results using `--lcov-dir` mode.
+
+### Python
+```bash
+pip install pytest pytest-cov
+```
+Test command: `pytest tests/ --cov=<source_pkg> --cov-context=test --cov-report=json:coverage.json && bdd coverage --file coverage.json`
+
+The `--cov-context=test` flag is critical — it records which test covered each line.
+
+### Node.js
+```bash
+npm install --save-dev c8  # or nyc
+```
+Test command: `NODE_V8_COVERAGE=.coverage npx jest && bdd coverage --dir .coverage`
+
+Or with c8: `npx c8 --reporter=lcov jest && bdd coverage --file coverage/lcov.info`
+
+### Go
+```bash
+# No additional tooling needed — go test has built-in coverage
+```
+Test command: `go test -coverprofile=coverage.out ./... && bdd coverage --file coverage.out --format lcov`
+
+## Step 3: Write the First Behavior Test
+
+Behavior tests exercise the FULL program, not isolated units:
+- For a CLI tool: invoke the binary with inputs, check stdout/stderr
+- For a web app: start the server, make HTTP requests, check responses
+- For a game: invoke the entry point, check initial state via introspection
+- For a library: import and run the public API end-to-end
+
+Write the test in the project's native test framework (pytest, #[test], jest, etc.).
+Link it to a catalog facet with `bdd link <facet-id> <test-identifier>`.
+
+## Step 4: Verify the Coverage Pipeline
+
+Run the full test command and verify:
+1. Tests pass
+2. A coverage report is produced
+3. `bdd coverage --file <report>` creates `coverage_map.json`
+4. `bdd related <some-source-file>` returns results with line-level facet mapping
+
+## Step 5: Fill in CLAUDE.md
+
+Edit `.claude/CLAUDE.md` and fill in:
+- **Stack**: language, framework, key libraries
+- **Build**: the build command
+- **Test (with per-test coverage)**: the full test + coverage + bdd coverage pipeline
+- **Key Paths**: important source directories and files
+
+## Step 6: Update settings.json Permissions
+
+Edit `.claude/settings.json` to add project-specific Bash permissions:
+- Build commands (e.g., `Bash(cargo build*)`)
+- Test commands (e.g., `Bash(cargo test*)`, `Bash(cargo llvm-cov*)`)
+- Coverage commands (`Bash(bdd coverage*)`)
+"""
+
+def cmd_setup(args):
+    """Set up BDD framework in a project directory."""
+    import shutil
+
+    project_dir = os.path.abspath(args.project_dir or os.getcwd())
+    bdd_dir = os.path.dirname(os.path.realpath(__file__))
+    framework_src = os.path.join(bdd_dir, "framework")
+    claude_dst = os.path.join(project_dir, ".claude")
+    catalog_path = os.path.join(project_dir, CATALOG_FILE)
+
+    if not os.path.isdir(framework_src):
+        print(f"Error: Framework directory not found at {framework_src}", file=sys.stderr)
+        sys.exit(1)
+
+    # Step 1: Copy framework to .claude/
+    if os.path.isdir(claude_dst):
+        if not args.force:
+            print(f".claude/ already exists in {project_dir}. Use --force to overwrite.", file=sys.stderr)
+            sys.exit(1)
+        shutil.rmtree(claude_dst)
+    shutil.copytree(framework_src, claude_dst)
+    print(f"Copied framework to {claude_dst}")
+
+    # Step 2: Create or update catalog.json with setup expectations
+    if os.path.exists(catalog_path):
+        with open(catalog_path) as f:
+            catalog = json.load(f)
+        print(f"Found existing {CATALOG_FILE} ({len(catalog['nodes'])} nodes)")
+    else:
+        catalog = {"version": 1, "nodes": []}
+        print(f"Created new {CATALOG_FILE}")
+
+    nodes = catalog["nodes"]
+
+    # Check if setup goal already exists
+    existing_setup = [n for n in nodes if n.get("labels") and "setup" in n["labels"] and n["type"] == "goal"]
+    if existing_setup:
+        print(f"Setup goal already exists ({existing_setup[0]['id']}). Skipping catalog seeding.")
+    else:
+        # Inject setup nodes with proper IDs and parent references
+        ref_map = {}  # ref_name -> actual_id
+
+        for template in SETUP_NODES:
+            ntype = template["type"]
+            new_id = next_id(nodes, TYPE_PREFIX[ntype])
+
+            node = {
+                "id": new_id,
+                "type": ntype,
+                "text": template["text"],
+            }
+
+            # Resolve parent
+            parent_ref = template.get("parent_ref")
+            if parent_ref:
+                node["parent"] = ref_map.get(parent_ref)
+            else:
+                node["parent"] = None
+
+            if ntype in ("goal", "expectation"):
+                node["priority"] = template.get("priority", 1)
+                node["labels"] = template.get("labels", [])
+            elif ntype == "facet":
+                node["test"] = None
+                node["status"] = "untested"
+
+            nodes.append(node)
+
+            # Store refs for child lookups
+            if ntype == "goal" and "setup" in template.get("labels", []):
+                ref_map["setup_goal"] = new_id
+            elif ntype == "expectation" and "coverage" in template["text"].lower():
+                ref_map["coverage_exp"] = new_id
+            elif ntype == "expectation" and "documented" in template["text"].lower():
+                ref_map["docs_exp"] = new_id
+            elif ntype == "expectation" and "infrastructure" in template["text"].lower():
+                ref_map["tests_exp"] = new_id
+
+        save_catalog(catalog, catalog_path)
+        setup_goal_id = ref_map.get("setup_goal", "?")
+        print(f"Seeded setup expectations (goal: {setup_goal_id})")
+
+    # Step 3: Create setup.md rule
+    setup_rule_path = os.path.join(claude_dst, "rules", "setup.md")
+    os.makedirs(os.path.dirname(setup_rule_path), exist_ok=True)
+    with open(setup_rule_path, "w") as f:
+        f.write(SETUP_RULE)
+    print(f"Created {setup_rule_path}")
+
+    # Summary
+    print()
+    print("Setup complete. Next steps:")
+    print("  1. cd to your project directory")
+    print("  2. Run the agent loop: ./loop.sh")
+    print("     Or interactively: claude")
+    print("  3. The agent will pick up setup expectations first (priority 0)")
+    print()
+    if os.path.exists(catalog_path):
+        # Show status
+        with open(catalog_path) as f:
+            cat = json.load(f)
+        n = cat["nodes"]
+        goals = len([x for x in n if x["type"] == "goal"])
+        exps = len([x for x in n if x["type"] == "expectation"])
+        facets = len([x for x in n if x["type"] == "facet"])
+        print(f"Catalog: {goals} goals, {exps} expectations, {facets} facets")
+
 def main():
     parser = argparse.ArgumentParser(prog="bdd", description="BDD Catalog Manager")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
@@ -695,6 +958,11 @@ def main():
     p.add_argument("id", help="Node ID")
     p.add_argument("text", help="New text")
 
+    # setup
+    p = sub.add_parser("setup", help="Set up BDD framework in a project")
+    p.add_argument("project_dir", nargs="?", help="Project directory (default: current)")
+    p.add_argument("--force", action="store_true", help="Overwrite existing .claude/ directory")
+
     # coverage
     p = sub.add_parser("coverage", help="Parse coverage data and update coverage_map.json")
     p.add_argument("--file", help="Coverage report file (default: read stdin)")
@@ -722,6 +990,7 @@ def main():
         "remove": cmd_remove,
         "edit": cmd_edit,
         "coverage": cmd_coverage,
+        "setup": cmd_setup,
     }
     cmd[args.command](args)
 
