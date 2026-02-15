@@ -22,7 +22,7 @@
       "type": "facet",
       "text": "pressing A produces visual feedback by next render",
       "parent": "e-001",
-      "test": "tests/test_button_feedback.sh",
+      "test": "tests/test_behavior.py::test_button_feedback",
       "status": "passing"
     },
     {
@@ -54,7 +54,7 @@
       "type": "facet",
       "text": "2 + 2 returns 4",
       "parent": "e-002",
-      "test": "tests/test_addition.sh",
+      "test": "tests/test_behavior.py::test_addition",
       "status": "passing"
     },
     {
@@ -62,7 +62,7 @@
       "type": "facet",
       "text": "adding negative numbers works",
       "parent": "e-002",
-      "test": "tests/test_negative_add.sh",
+      "test": "tests/test_behavior.py::test_negative_add",
       "status": "failing"
     },
     {

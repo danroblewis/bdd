@@ -16,7 +16,7 @@ Status flows upward: facets have explicit status (untested/failing/passing), and
 
 1. **Capture** — Humans express what they want. You add goals and expectations to the catalog using `bdd add`. Act immediately, human prunes later.
 2. **Decompose** — Break expectations into testable facets. Each facet tests ONE specific behavior from the user's perspective.
-3. **Express** — Write behavior tests for each facet. Link them with `bdd link`. Tests are shell scripts that exit 0 on pass.
+3. **Express** — Write behavior tests for each facet using the project's native test framework (pytest, cargo test, jest, go test, etc.). Each test exercises the FULL program — launching or invoking the complete application, not isolated units. Link tests with `bdd link`. Every test run MUST collect per-test code coverage.
 4. **Curate** — Humans add, remove, and reprioritize. The catalog is always the truth. When expectations are removed, corresponding tests and code can be simplified.
 5. **Respond** — Write code to make the current test suite pass. The agent loop picks up unsatisfied expectations via `bdd next`.
 
@@ -40,3 +40,16 @@ Status flows upward: facets have explicit status (untested/failing/passing), and
 ## Priority
 
 Work is prioritized by the `priority` field on expectations (lower number = higher priority). The `bdd next` command returns the highest-priority unsatisfied expectation. Trust the priority ordering — it reflects stakeholder intent.
+
+## Coverage
+
+Per-test code coverage collection is mandatory infrastructure, not optional. Every test run must:
+
+1. Run tests with per-test coverage using the project's native coverage tool (e.g., `pytest --cov --cov-context=test`, `cargo llvm-cov`, `c8`, `go test -coverprofile`)
+2. Pipe or feed the coverage report into `bdd coverage` to regenerate `coverage_map.json`
+
+The coverage map has line-level granularity: it maps each source file line to the specific facet IDs whose tests exercise that line. This creates a living map of WHY each line of code exists — which stakeholder behaviors it supports.
+
+When the agent reads a source file, the inject-context hook looks up the lines being read in the coverage map and surfaces the motivation chain (goal > expectation > facet). This ensures the agent always knows the purpose of the code it's working with.
+
+Without coverage, the motivation chain from source code back to stakeholder intent is broken, and the agent is working blind.

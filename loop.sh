@@ -6,7 +6,7 @@
 # Logs to bdd_loop.log in the current directory.
 
 set -e
-MAX_ITERATIONS="${1:-10}"
+MAX_ITERATIONS="${1:-1000}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROGRESS="progress.txt"
 LOG="bdd_loop.log"
@@ -20,11 +20,17 @@ log() {
 
 run_claude() {
   local prompt_file="$1"
-  (unset CLAUDECODE; cat "$prompt_file" | claude -p \
+  # (unset CLAUDECODE; cat "$prompt_file" | claude -p \
+  #   --dangerously-skip-permissions \
+  #   --allow-dangerously-skip-permissions \
+  #   --disallowedTools EnterPlanMode \
+  #   2>&1) | tee -a "$LOG" || true
+
+  unset CLAUDECODE
+  cat "$prompt_file" | claude -p \
     --dangerously-skip-permissions \
     --allow-dangerously-skip-permissions \
-    --disallowedTools EnterPlanMode \
-    2>&1) | tee -a "$LOG" || true
+    --disallowedTools EnterPlanMode
 }
 
 # Initialize progress log
@@ -46,11 +52,11 @@ for i in $(seq 1 $MAX_ITERATIONS); do
 
   # Check if there's work to do
   REMAINING=$(bdd --json status | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['unsatisfied'])")
-  if [ "$REMAINING" = "0" ]; then
-    log "All expectations satisfied!"
-    bdd status | tee -a "$LOG"
-    exit 0
-  fi
+  # if [ "$REMAINING" = "0" ]; then
+  #   log "All expectations satisfied!"
+  #   bdd status | tee -a "$LOG"
+  #   exit 0
+  # fi
 
   log "Unsatisfied expectations: $REMAINING"
 
@@ -61,12 +67,12 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   run_claude "$SCRIPT_DIR/plan.md"
 
   # Check if planning agent said we're done
-  if [ -f plan.md ] && head -1 plan.md | grep -q "COMPLETE"; then
-    log ""
-    log "All expectations satisfied!"
-    bdd status | tee -a "$LOG"
-    exit 0
-  fi
+#  if [ -f plan.md ] && head -1 plan.md | grep -q "COMPLETE"; then
+#    log ""
+#    log "All expectations satisfied!"
+#    bdd status | tee -a "$LOG"
+#    exit 0
+#  fi
 
   if [ ! -f plan.md ]; then
     log "WARNING: Planning agent did not create plan.md. Skipping iteration."

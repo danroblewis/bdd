@@ -83,8 +83,8 @@ Write a concrete implementation plan to `plan.md` with this structure:
 
 ## Behavior Tests
 For each facet, describe:
-- Test file path
-- What the test does (inputs, expected outputs, assertions)
+- Test identifier (e.g., tests/test_behavior.py::test_name, tests/behavior.rs test function)
+- What the test does (launches full program, inputs, expected outputs, assertions)
 - The bdd link command
 
 ## Implementation
@@ -94,8 +94,8 @@ For each facet, describe:
 - What existing patterns to follow
 
 ## Test Execution
-- How to run the tests
-- What the full test suite command is
+- How to run the tests (must use native test framework with per-test coverage)
+- The full test + coverage + `bdd coverage` pipeline command
 - Any dependencies or setup needed
 
 ## Risks

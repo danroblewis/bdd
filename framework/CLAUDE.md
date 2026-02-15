@@ -40,9 +40,10 @@ Add `--json` to any command for machine-readable output.
 # build command here
 ```
 
-**Test:**
+**Test (with per-test coverage):**
 ```bash
-# test command here
+# test + coverage command here, e.g.:
+# pytest tests/ --cov=src --cov-context=test --cov-report=json:coverage.json && bdd coverage --file coverage.json
 ```
 
 **Introspect:**

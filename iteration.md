@@ -22,9 +22,9 @@ Run any `bdd add facet` commands specified in the plan.
 ## Step 3: Write Behavior Tests
 
 For each facet in the plan:
-1. Write the behavior test script exactly as specified
-2. Make it executable: `chmod +x <test-path>`
-3. Link it: `bdd link <facet-id> <test-path>`
+1. Write the behavior test in the project's native test framework as specified
+2. Ensure the test exercises the full program (not isolated units)
+3. Link it: `bdd link <facet-id> <test-identifier>`
 
 ## Step 4: Implement
 
@@ -33,9 +33,9 @@ Write the code as described in the plan. Follow the plan's guidance on:
 - What functions and logic to implement
 - What patterns to follow
 
-## Step 5: Run ALL Tests
+## Step 5: Run ALL Tests and Collect Coverage
 
-Run the full test suite (see `.claude/CLAUDE.md` for the command). Not just new tests — catch regressions. Fix any failures before continuing.
+Run the full test suite with per-test coverage collection (see `.claude/CLAUDE.md` for the command). Not just new tests — catch regressions. The test command MUST include per-test coverage collection and `bdd coverage` to regenerate the coverage map. Fix any failures before continuing.
 
 ## Step 6: Update Statuses
 

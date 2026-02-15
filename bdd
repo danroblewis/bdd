@@ -424,29 +424,220 @@ def cmd_related(args):
     coverage_path = os.path.join(os.path.dirname(find_catalog()), "coverage_map.json")
     if not os.path.exists(coverage_path):
         if args.json:
-            print(json.dumps({"error": "No coverage_map.json found. Coverage mapping is not yet set up."}))
+            print(json.dumps({"error": "No coverage_map.json found. Run tests with coverage to generate it."}))
         else:
-            print("No coverage_map.json found. Coverage mapping is not yet set up.")
+            print("No coverage_map.json found. Run tests with coverage to generate it.")
         return
 
     with open(coverage_path) as f:
         coverage = json.load(f)
 
+    catalog, _ = load_catalog()
+    nodes = catalog["nodes"]
+
     filepath = args.filepath
-    matches = [e for e in coverage if filepath in e.get("file", "")]
-    if not matches:
+    # Find matching files (substring match on keys)
+    matched_files = {f: lines for f, lines in coverage.items() if filepath in f}
+
+    if not matched_files:
         if args.json:
             print(json.dumps({"file": filepath, "related": []}))
         else:
             print(f"No catalog entries related to {filepath}")
+        return
+
+    # Collect facet IDs, optionally filtering by line range
+    line_range = getattr(args, 'line_range', None)
+    line_start = int(line_range[0]) if line_range else None
+    line_end = int(line_range[1]) if line_range else None
+
+    results = []
+    for src_file, line_map in matched_files.items():
+        facet_ids = set()
+        for line_num, fids in line_map.items():
+            if line_start is not None and line_end is not None:
+                if not (line_start <= int(line_num) <= line_end):
+                    continue
+            for fid in fids:
+                facet_ids.add(fid)
+
+        chains = []
+        for fid in sorted(facet_ids):
+            chain = get_ancestor_chain(nodes, fid)
+            if chain:
+                chains.append({
+                    "facet_id": fid,
+                    "chain": [{"id": n["id"], "type": n["type"], "text": n["text"]} for n in chain]
+                })
+        if facet_ids:
+            results.append({"file": src_file, "facet_ids": sorted(facet_ids), "chains": chains})
+
+    if args.json:
+        print(json.dumps({"file": filepath, "related": results}))
     else:
-        if args.json:
-            print(json.dumps({"file": filepath, "related": matches}))
-        else:
-            for m in matches:
-                print(f"{m['file']}")
-                for chain in m.get("chain", []):
-                    print(f"  <- {chain}")
+        for r in results:
+            print(f"{r['file']}:")
+            for c in r["chains"]:
+                chain_str = " > ".join(f"{n['id']} ({n['type']}): {n['text']}" for n in c["chain"])
+                print(f"  {chain_str}")
+
+def cmd_coverage(args):
+    """Parse per-test coverage data and update coverage_map.json."""
+    import xml.etree.ElementTree as ET
+
+    catalog, cat_path = load_catalog()
+    nodes = catalog["nodes"]
+    project_root = os.path.dirname(cat_path)
+    coverage_map_path = os.path.join(project_root, "coverage_map.json")
+
+    # Build reverse map: test_identifier -> [facet_id]
+    test_to_facets = {}
+    for n in nodes:
+        if n["type"] == "facet" and n.get("test"):
+            test_to_facets.setdefault(n["test"], []).append(n["id"])
+
+    # Read coverage input
+    if args.dir:
+        # lcov-dir mode: directory of per-test LCOV files
+        fmt = "lcov-dir"
+        raw = None
+    elif args.file:
+        with open(args.file) as f:
+            raw = f.read()
+    else:
+        raw = sys.stdin.read()
+
+    if not args.dir:
+        fmt = args.format
+        if not fmt:
+            stripped = raw.strip()
+            if stripped.startswith("{"):
+                fmt = "coverage-json"
+            elif stripped.startswith("TN:") or stripped.startswith("SF:"):
+                fmt = "lcov"
+            elif stripped.startswith("<?xml") or stripped.startswith("<coverage"):
+                fmt = "cobertura"
+            else:
+                print("Error: Could not auto-detect coverage format. Use --format.", file=sys.stderr)
+                sys.exit(1)
+
+    # coverage_map: {filepath: {line_num_str: set(facet_ids)}}
+    coverage_map = {}
+
+    def add_line(filepath, line_num, facet_ids):
+        """Add facet IDs for a specific line of a file."""
+        filepath = os.path.relpath(filepath, project_root) if os.path.isabs(filepath) else filepath
+        if filepath not in coverage_map:
+            coverage_map[filepath] = {}
+        line_str = str(line_num)
+        if line_str not in coverage_map[filepath]:
+            coverage_map[filepath][line_str] = set()
+        coverage_map[filepath][line_str].update(facet_ids)
+
+    if fmt == "coverage-json":
+        # coverage.py JSON with contexts: {files: {filepath: {contexts: {context_name: [line_nums]}}}}
+        # or the newer format: {files: {filepath: {executed_lines: [...], contexts: [...]}}}
+        data = json.loads(raw)
+        files = data.get("files", {})
+        for filepath, file_data in files.items():
+            contexts = file_data.get("contexts", {})
+            if isinstance(contexts, dict):
+                # Format: {context_name: [line_numbers]}
+                for context_name, lines in contexts.items():
+                    # Match context to test identifier
+                    matched_facets = []
+                    for test_id, facet_ids in test_to_facets.items():
+                        if test_id in context_name or context_name in test_id:
+                            matched_facets.extend(facet_ids)
+                    if matched_facets:
+                        for line in lines:
+                            add_line(filepath, line, matched_facets)
+
+    elif fmt == "lcov":
+        # Single LCOV file — whole-suite, no per-test info
+        # Map all hit lines to all facets that have linked tests
+        all_facet_ids = []
+        for fids in test_to_facets.values():
+            all_facet_ids.extend(fids)
+        all_facet_ids = list(set(all_facet_ids))
+
+        current_file = None
+        for line in raw.splitlines():
+            if line.startswith("SF:"):
+                current_file = line[3:].strip()
+            elif line.startswith("DA:") and current_file:
+                parts = line[3:].split(",")
+                if len(parts) >= 2 and int(parts[1]) > 0:
+                    add_line(current_file, int(parts[0]), all_facet_ids)
+            elif line.startswith("end_of_record"):
+                current_file = None
+
+    elif fmt == "lcov-dir":
+        # Directory of per-test LCOV files
+        # Filename convention: test identifier with / replaced by __ and :: kept
+        dir_path = args.dir
+        for fname in os.listdir(dir_path):
+            if not fname.endswith(".lcov"):
+                continue
+            # Derive test identifier from filename
+            test_id = fname[:-5].replace("__", "/")
+            facet_ids = test_to_facets.get(test_id, [])
+            if not facet_ids:
+                # Try fuzzy match
+                for tid, fids in test_to_facets.items():
+                    if test_id in tid or tid in test_id:
+                        facet_ids.extend(fids)
+            if not facet_ids:
+                continue
+
+            with open(os.path.join(dir_path, fname)) as f:
+                lcov_data = f.read()
+            current_file = None
+            for line in lcov_data.splitlines():
+                if line.startswith("SF:"):
+                    current_file = line[3:].strip()
+                elif line.startswith("DA:") and current_file:
+                    parts = line[3:].split(",")
+                    if len(parts) >= 2 and int(parts[1]) > 0:
+                        add_line(current_file, int(parts[0]), facet_ids)
+                elif line.startswith("end_of_record"):
+                    current_file = None
+
+    elif fmt == "cobertura":
+        # Cobertura XML — whole-suite
+        all_facet_ids = []
+        for fids in test_to_facets.values():
+            all_facet_ids.extend(fids)
+        all_facet_ids = list(set(all_facet_ids))
+
+        root = ET.fromstring(raw)
+        for cls in root.iter("class"):
+            filename = cls.get("filename", "")
+            if not filename:
+                continue
+            for line_el in cls.iter("line"):
+                line_num = line_el.get("number")
+                hits = int(line_el.get("hits", "0"))
+                if line_num and hits > 0:
+                    add_line(filename, int(line_num), all_facet_ids)
+
+    # Convert sets to sorted lists for JSON serialization
+    serializable = {}
+    for filepath in sorted(coverage_map):
+        serializable[filepath] = {}
+        for line_num in sorted(coverage_map[filepath], key=lambda x: int(x)):
+            serializable[filepath][line_num] = sorted(coverage_map[filepath][line_num])
+
+    with open(coverage_map_path, "w") as f:
+        json.dump(serializable, f, indent=2)
+        f.write("\n")
+
+    if args.json:
+        print(json.dumps({"files_mapped": len(serializable), "path": coverage_map_path}))
+    else:
+        total_lines = sum(len(lines) for lines in serializable.values())
+        print(f"Coverage map updated: {len(serializable)} files, {total_lines} lines mapped")
+        print(f"Written to {coverage_map_path}")
 
 def main():
     parser = argparse.ArgumentParser(prog="bdd", description="BDD Catalog Manager")
@@ -473,6 +664,8 @@ def main():
     # related
     p = sub.add_parser("related", help="Motivation chain for a source file")
     p.add_argument("filepath", help="Source file path")
+    p.add_argument("--lines", nargs=2, metavar=("START", "END"), dest="line_range",
+                   help="Filter to lines in range START..END")
 
     # add
     p = sub.add_parser("add", help="Add a node to the catalog")
@@ -502,6 +695,13 @@ def main():
     p.add_argument("id", help="Node ID")
     p.add_argument("text", help="New text")
 
+    # coverage
+    p = sub.add_parser("coverage", help="Parse coverage data and update coverage_map.json")
+    p.add_argument("--file", help="Coverage report file (default: read stdin)")
+    p.add_argument("--dir", help="Directory of per-test LCOV files (lcov-dir format)")
+    p.add_argument("--format", choices=["coverage-json", "lcov", "lcov-dir", "cobertura"],
+                   help="Coverage format (auto-detected if not specified)")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -521,6 +721,7 @@ def main():
         "link": cmd_link,
         "remove": cmd_remove,
         "edit": cmd_edit,
+        "coverage": cmd_coverage,
     }
     cmd[args.command](args)
 
