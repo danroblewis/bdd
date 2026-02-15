@@ -1,0 +1,528 @@
+#!/usr/bin/env python3
+"""bdd — Behavior-Driven Development catalog manager.
+
+Manages a catalog.json of goals, expectations, and facets.
+Used by humans, Curation Claude, and Implementation Claude.
+"""
+
+import argparse
+import json
+import os
+import sys
+
+CATALOG_FILE = "catalog.json"
+
+def find_catalog():
+    """Find catalog.json in current directory or parents."""
+    d = os.getcwd()
+    while True:
+        path = os.path.join(d, CATALOG_FILE)
+        if os.path.exists(path):
+            return path
+        parent = os.path.dirname(d)
+        if parent == d:
+            return os.path.join(os.getcwd(), CATALOG_FILE)
+        d = parent
+
+def load_catalog(path=None):
+    path = path or find_catalog()
+    if not os.path.exists(path):
+        print(f"Error: No {CATALOG_FILE} found. Run 'bdd init' first.", file=sys.stderr)
+        sys.exit(1)
+    with open(path) as f:
+        return json.load(f), path
+
+def save_catalog(catalog, path):
+    with open(path, "w") as f:
+        json.dump(catalog, f, indent=2)
+        f.write("\n")
+
+def next_id(nodes, prefix):
+    max_n = 0
+    for n in nodes:
+        if n["id"].startswith(prefix + "-"):
+            try:
+                num = int(n["id"].split("-", 1)[1])
+                if num > max_n:
+                    max_n = num
+            except ValueError:
+                pass
+    return f"{prefix}-{max_n + 1:03d}"
+
+TYPE_PREFIX = {"goal": "g", "expectation": "e", "facet": "f"}
+
+def get_node(nodes, node_id):
+    for n in nodes:
+        if n["id"] == node_id:
+            return n
+    return None
+
+def get_children(nodes, parent_id):
+    return [n for n in nodes if n.get("parent") == parent_id]
+
+def get_ancestor_chain(nodes, node_id):
+    """Return list from root to node."""
+    chain = []
+    current = get_node(nodes, node_id)
+    while current:
+        chain.append(current)
+        pid = current.get("parent")
+        current = get_node(nodes, pid) if pid else None
+    chain.reverse()
+    return chain
+
+def compute_status(nodes, node):
+    """Compute status for any node from descendant facets."""
+    if node["type"] == "facet":
+        return node.get("status", "untested")
+    children = get_children(nodes, node["id"])
+    if not children:
+        return "untested"
+    statuses = [compute_status(nodes, c) for c in children]
+    if all(s == "passing" for s in statuses):
+        return "passing"
+    if any(s == "failing" for s in statuses):
+        return "failing"
+    return "untested"
+
+def status_icon(status):
+    if status == "passing":
+        return "[+]"
+    if status == "failing":
+        return "[-]"
+    return "[ ]"
+
+# --- Commands ---
+
+def cmd_init(args):
+    path = os.path.join(os.getcwd(), CATALOG_FILE)
+    if os.path.exists(path) and not args.force:
+        print(f"{CATALOG_FILE} already exists. Use --force to overwrite.", file=sys.stderr)
+        sys.exit(1)
+    catalog = {"version": 1, "nodes": []}
+    save_catalog(catalog, path)
+    print(f"Created {path}")
+
+def cmd_status(args):
+    catalog, _ = load_catalog()
+    nodes = catalog["nodes"]
+    goals = [n for n in nodes if n["type"] == "goal"]
+    expectations = [n for n in nodes if n["type"] == "expectation"]
+    facets = [n for n in nodes if n["type"] == "facet"]
+    passing = [f for f in facets if f.get("status") == "passing"]
+    failing = [f for f in facets if f.get("status") == "failing"]
+    untested = [f for f in facets if f.get("status", "untested") == "untested"]
+
+    total = len(facets)
+    coverage = (len(passing) / total * 100) if total > 0 else 0
+
+    satisfied = sum(1 for e in expectations if compute_status(nodes, e) == "passing")
+    unsatisfied = len(expectations) - satisfied
+
+    if args.json:
+        print(json.dumps({
+            "goals": len(goals),
+            "expectations": len(expectations),
+            "facets": total,
+            "passing": len(passing),
+            "failing": len(failing),
+            "untested": len(untested),
+            "coverage": round(coverage, 1),
+            "satisfied": satisfied,
+            "unsatisfied": unsatisfied,
+        }))
+    else:
+        print(f"Goals:        {len(goals)}")
+        print(f"Expectations: {len(expectations)} ({satisfied} satisfied, {unsatisfied} unsatisfied)")
+        print(f"Facets:       {total}")
+        print(f"  Passing:    {len(passing)}")
+        print(f"  Failing:    {len(failing)}")
+        print(f"  Untested:   {len(untested)}")
+        print(f"Coverage:     {coverage:.0f}%")
+
+def cmd_next(args):
+    catalog, _ = load_catalog()
+    nodes = catalog["nodes"]
+    expectations = [n for n in nodes if n["type"] == "expectation"]
+
+    # Sort by priority (lower = higher priority), filter unsatisfied
+    unsatisfied = [e for e in expectations if compute_status(nodes, e) != "passing"]
+    unsatisfied.sort(key=lambda e: e.get("priority", 99))
+
+    if not unsatisfied:
+        if args.json:
+            print(json.dumps(None))
+        else:
+            print("All expectations satisfied!")
+        return
+
+    exp = unsatisfied[0]
+    facets = get_children(nodes, exp["id"])
+    parent = get_node(nodes, exp.get("parent"))
+
+    if args.json:
+        print(json.dumps({
+            "expectation": exp,
+            "facets": facets,
+            "parent_goal": parent,
+        }))
+    else:
+        if parent:
+            print(f"Goal: {parent['id']} — {parent['text']}")
+            print()
+        print(f"Expectation: {exp['id']} — {exp['text']}")
+        if exp.get("priority"):
+            print(f"Priority: {exp['priority']}")
+        if exp.get("labels"):
+            print(f"Labels: {', '.join(exp['labels'])}")
+        print()
+        if facets:
+            print("Facets:")
+            for f in facets:
+                icon = status_icon(f.get("status", "untested"))
+                test = f" (test: {f['test']})" if f.get("test") else ""
+                print(f"  {icon} {f['id']} — {f['text']}{test}")
+        else:
+            print("No facets yet — decompose this expectation into testable facets.")
+
+def cmd_show(args):
+    catalog, _ = load_catalog()
+    nodes = catalog["nodes"]
+    node = get_node(nodes, args.id)
+    if not node:
+        print(f"Error: Node '{args.id}' not found.", file=sys.stderr)
+        sys.exit(1)
+
+    chain = get_ancestor_chain(nodes, args.id)
+    children = get_children(nodes, args.id)
+    status = compute_status(nodes, node)
+
+    if args.json:
+        print(json.dumps({
+            "node": node,
+            "status": status,
+            "children": children,
+            "ancestor_chain": chain,
+        }))
+    else:
+        # Show ancestor chain
+        if len(chain) > 1:
+            print("Context:")
+            for i, a in enumerate(chain[:-1]):
+                indent = "  " * i
+                print(f"  {indent}{a['id']} ({a['type']}) — {a['text']}")
+            print()
+
+        print(f"{'Type:':<10} {node['type']}")
+        print(f"{'ID:':<10} {node['id']}")
+        print(f"{'Text:':<10} {node['text']}")
+        print(f"{'Status:':<10} {status}")
+        if node.get("parent"):
+            print(f"{'Parent:':<10} {node['parent']}")
+        if node.get("priority"):
+            print(f"{'Priority:':<10} {node['priority']}")
+        if node.get("labels"):
+            print(f"{'Labels:':<10} {', '.join(node['labels'])}")
+        if node.get("test"):
+            print(f"{'Test:':<10} {node['test']}")
+
+        if children:
+            print(f"\nChildren ({len(children)}):")
+            for c in children:
+                s = compute_status(nodes, c)
+                icon = status_icon(s)
+                print(f"  {icon} {c['id']} ({c['type']}) — {c['text']}")
+
+def cmd_tree(args):
+    catalog, _ = load_catalog()
+    nodes = catalog["nodes"]
+    roots = [n for n in nodes if n.get("parent") is None]
+    roots.sort(key=lambda n: n.get("priority", 99))
+
+    if args.json:
+        def build_tree(node):
+            children = get_children(nodes, node["id"])
+            children.sort(key=lambda n: n.get("priority", 99))
+            return {
+                **node,
+                "computed_status": compute_status(nodes, node),
+                "children": [build_tree(c) for c in children],
+            }
+        print(json.dumps([build_tree(r) for r in roots], indent=2))
+    else:
+        def print_tree(node, indent=0):
+            status = compute_status(nodes, node)
+            icon = status_icon(status)
+            prefix = "  " * indent
+            type_label = node["type"][0].upper()
+            print(f"{prefix}{icon} {node['id']} [{type_label}] {node['text']}")
+            children = get_children(nodes, node["id"])
+            children.sort(key=lambda n: n.get("priority", 99))
+            for c in children:
+                print_tree(c, indent + 1)
+
+        if not roots:
+            print("Catalog is empty. Use 'bdd add goal \"...\"' to get started.")
+        for r in roots:
+            print_tree(r)
+
+def cmd_add(args):
+    catalog, path = load_catalog()
+    nodes = catalog["nodes"]
+    ntype = args.type
+
+    if ntype not in TYPE_PREFIX:
+        print(f"Error: Type must be one of: goal, expectation, facet", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate parent
+    parent_id = args.parent
+    if parent_id:
+        parent = get_node(nodes, parent_id)
+        if not parent:
+            print(f"Error: Parent '{parent_id}' not found.", file=sys.stderr)
+            sys.exit(1)
+    elif ntype == "expectation":
+        # Expectations must have a goal parent
+        goals = [n for n in nodes if n["type"] == "goal"]
+        if len(goals) == 1:
+            parent_id = goals[0]["id"]
+        elif len(goals) > 1:
+            print("Error: Multiple goals exist. Use --parent to specify.", file=sys.stderr)
+            sys.exit(1)
+    elif ntype == "facet":
+        # Facets must have an expectation parent
+        expectations = [n for n in nodes if n["type"] == "expectation"]
+        if len(expectations) == 1:
+            parent_id = expectations[0]["id"]
+        elif len(expectations) > 1:
+            print("Error: Multiple expectations exist. Use --parent to specify.", file=sys.stderr)
+            sys.exit(1)
+
+    new_id = next_id(nodes, TYPE_PREFIX[ntype])
+
+    node = {
+        "id": new_id,
+        "type": ntype,
+        "text": args.text,
+        "parent": parent_id,
+    }
+
+    if ntype in ("goal", "expectation"):
+        node["priority"] = args.priority or 1
+        node["labels"] = args.label or []
+    elif ntype == "facet":
+        node["test"] = None
+        node["status"] = "untested"
+
+    nodes.append(node)
+    save_catalog(catalog, path)
+
+    if args.json:
+        print(json.dumps(node))
+    else:
+        print(f"Added {ntype}: {new_id} — {args.text}")
+        if parent_id:
+            print(f"  Parent: {parent_id}")
+
+def cmd_mark(args):
+    catalog, path = load_catalog()
+    nodes = catalog["nodes"]
+    node = get_node(nodes, args.facet_id)
+
+    if not node:
+        print(f"Error: Node '{args.facet_id}' not found.", file=sys.stderr)
+        sys.exit(1)
+    if node["type"] != "facet":
+        print(f"Error: '{args.facet_id}' is a {node['type']}, not a facet. Only facets can be marked.", file=sys.stderr)
+        sys.exit(1)
+
+    valid = ("passing", "failing", "untested")
+    if args.status not in valid:
+        print(f"Error: Status must be one of: {', '.join(valid)}", file=sys.stderr)
+        sys.exit(1)
+
+    old = node.get("status", "untested")
+    node["status"] = args.status
+    save_catalog(catalog, path)
+
+    if args.json:
+        print(json.dumps({"id": node["id"], "old_status": old, "new_status": args.status}))
+    else:
+        print(f"Marked {args.facet_id}: {old} -> {args.status}")
+
+def cmd_link(args):
+    catalog, path = load_catalog()
+    nodes = catalog["nodes"]
+    node = get_node(nodes, args.facet_id)
+
+    if not node:
+        print(f"Error: Node '{args.facet_id}' not found.", file=sys.stderr)
+        sys.exit(1)
+    if node["type"] != "facet":
+        print(f"Error: '{args.facet_id}' is a {node['type']}, not a facet.", file=sys.stderr)
+        sys.exit(1)
+
+    node["test"] = args.test_path
+    save_catalog(catalog, path)
+
+    if args.json:
+        print(json.dumps({"id": node["id"], "test": args.test_path}))
+    else:
+        print(f"Linked {args.facet_id} -> {args.test_path}")
+
+def cmd_remove(args):
+    catalog, path = load_catalog()
+    nodes = catalog["nodes"]
+    node = get_node(nodes, args.id)
+
+    if not node:
+        print(f"Error: Node '{args.id}' not found.", file=sys.stderr)
+        sys.exit(1)
+
+    children = get_children(nodes, args.id)
+    if children and not args.force:
+        child_ids = [c["id"] for c in children]
+        print(f"Warning: '{args.id}' has {len(children)} children: {', '.join(child_ids)}", file=sys.stderr)
+        print(f"Children will be orphaned (parent set to null). Use --force to confirm.", file=sys.stderr)
+        sys.exit(1)
+
+    # Orphan children
+    for c in children:
+        c["parent"] = None
+
+    catalog["nodes"] = [n for n in nodes if n["id"] != args.id]
+    save_catalog(catalog, path)
+
+    if args.json:
+        print(json.dumps({"removed": args.id, "orphaned": [c["id"] for c in children]}))
+    else:
+        print(f"Removed {args.id}")
+        if children:
+            print(f"  Orphaned: {', '.join(c['id'] for c in children)}")
+
+def cmd_edit(args):
+    catalog, path = load_catalog()
+    nodes = catalog["nodes"]
+    node = get_node(nodes, args.id)
+
+    if not node:
+        print(f"Error: Node '{args.id}' not found.", file=sys.stderr)
+        sys.exit(1)
+
+    old = node["text"]
+    node["text"] = args.text
+    save_catalog(catalog, path)
+
+    if args.json:
+        print(json.dumps({"id": args.id, "old_text": old, "new_text": args.text}))
+    else:
+        print(f"Updated {args.id}: {args.text}")
+
+def cmd_related(args):
+    """Show motivation chain for a source file (requires coverage map)."""
+    coverage_path = os.path.join(os.path.dirname(find_catalog()), "coverage_map.json")
+    if not os.path.exists(coverage_path):
+        if args.json:
+            print(json.dumps({"error": "No coverage_map.json found. Coverage mapping is not yet set up."}))
+        else:
+            print("No coverage_map.json found. Coverage mapping is not yet set up.")
+        return
+
+    with open(coverage_path) as f:
+        coverage = json.load(f)
+
+    filepath = args.filepath
+    matches = [e for e in coverage if filepath in e.get("file", "")]
+    if not matches:
+        if args.json:
+            print(json.dumps({"file": filepath, "related": []}))
+        else:
+            print(f"No catalog entries related to {filepath}")
+    else:
+        if args.json:
+            print(json.dumps({"file": filepath, "related": matches}))
+        else:
+            for m in matches:
+                print(f"{m['file']}")
+                for chain in m.get("chain", []):
+                    print(f"  <- {chain}")
+
+def main():
+    parser = argparse.ArgumentParser(prog="bdd", description="BDD Catalog Manager")
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
+    sub = parser.add_subparsers(dest="command")
+
+    # init
+    p = sub.add_parser("init", help="Create empty catalog.json")
+    p.add_argument("--force", action="store_true", help="Overwrite existing catalog")
+
+    # status
+    sub.add_parser("status", help="Summary of catalog")
+
+    # next
+    sub.add_parser("next", help="Next unsatisfied expectation to work on")
+
+    # show
+    p = sub.add_parser("show", help="Show details of a node")
+    p.add_argument("id", help="Node ID (e.g. g-001, e-001, f-001)")
+
+    # tree
+    sub.add_parser("tree", help="Hierarchical view of catalog")
+
+    # related
+    p = sub.add_parser("related", help="Motivation chain for a source file")
+    p.add_argument("filepath", help="Source file path")
+
+    # add
+    p = sub.add_parser("add", help="Add a node to the catalog")
+    p.add_argument("type", choices=["goal", "expectation", "facet"], help="Node type")
+    p.add_argument("text", help="Node text")
+    p.add_argument("--parent", help="Parent node ID")
+    p.add_argument("--priority", type=int, help="Priority (lower = higher)")
+    p.add_argument("--label", action="append", help="Label (repeatable)")
+
+    # mark
+    p = sub.add_parser("mark", help="Update facet status")
+    p.add_argument("facet_id", help="Facet ID")
+    p.add_argument("status", choices=["passing", "failing", "untested"], help="New status")
+
+    # link
+    p = sub.add_parser("link", help="Link facet to test file")
+    p.add_argument("facet_id", help="Facet ID")
+    p.add_argument("test_path", help="Path to test file")
+
+    # remove
+    p = sub.add_parser("remove", help="Remove a node")
+    p.add_argument("id", help="Node ID")
+    p.add_argument("--force", action="store_true", help="Confirm removal of node with children")
+
+    # edit
+    p = sub.add_parser("edit", help="Edit node text")
+    p.add_argument("id", help="Node ID")
+    p.add_argument("text", help="New text")
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+
+    # Dispatch
+    cmd = {
+        "init": cmd_init,
+        "status": cmd_status,
+        "next": cmd_next,
+        "show": cmd_show,
+        "tree": cmd_tree,
+        "related": cmd_related,
+        "add": cmd_add,
+        "mark": cmd_mark,
+        "link": cmd_link,
+        "remove": cmd_remove,
+        "edit": cmd_edit,
+    }
+    cmd[args.command](args)
+
+if __name__ == "__main__":
+    main()

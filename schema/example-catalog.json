@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "g-001",
+      "type": "goal",
+      "text": "The game should feel responsive",
+      "parent": null,
+      "priority": 1,
+      "labels": ["ux", "performance"]
+    },
+    {
+      "id": "e-001",
+      "type": "expectation",
+      "text": "Controls respond within one frame",
+      "parent": "g-001",
+      "priority": 1,
+      "labels": ["controls"]
+    },
+    {
+      "id": "f-001",
+      "type": "facet",
+      "text": "pressing A produces visual feedback by next render",
+      "parent": "e-001",
+      "test": "tests/test_button_feedback.sh",
+      "status": "passing"
+    },
+    {
+      "id": "f-002",
+      "type": "facet",
+      "text": "no input events dropped under load",
+      "parent": "e-001",
+      "test": null,
+      "status": "untested"
+    },
+    {
+      "id": "g-002",
+      "type": "goal",
+      "text": "The calculator should handle basic arithmetic",
+      "parent": null,
+      "priority": 1,
+      "labels": ["core"]
+    },
+    {
+      "id": "e-002",
+      "type": "expectation",
+      "text": "Addition works correctly",
+      "parent": "g-002",
+      "priority": 1,
+      "labels": ["arithmetic"]
+    },
+    {
+      "id": "f-003",
+      "type": "facet",
+      "text": "2 + 2 returns 4",
+      "parent": "e-002",
+      "test": "tests/test_addition.sh",
+      "status": "passing"
+    },
+    {
+      "id": "f-004",
+      "type": "facet",
+      "text": "adding negative numbers works",
+      "parent": "e-002",
+      "test": "tests/test_negative_add.sh",
+      "status": "failing"
+    },
+    {
+      "id": "e-003",
+      "type": "expectation",
+      "text": "Division handles edge cases",
+      "parent": "g-002",
+      "priority": 2,
+      "labels": ["arithmetic", "edge-cases"]
+    },
+    {
+      "id": "f-005",
+      "type": "facet",
+      "text": "dividing by zero shows an error message",
+      "parent": "e-003",
+      "test": null,
+      "status": "untested"
+    }
+  ]
+}
