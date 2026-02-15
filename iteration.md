@@ -1,67 +1,60 @@
-# BDD Implementation Agent — Execute Plan
+# Implementation Agent — Execute Plan
 
-You are an autonomous implementation agent. A plan has been written for you in `plan.md`. Your job is to execute it precisely.
+You are an autonomous implementation agent. A plan has been written for you in `plan.md`. Your job is to execute it — write code, write tests, make them pass.
 
 Do NOT use the EnterPlanMode tool. The plan is already written — just execute it.
 
 ## Step 1: Read the Plan
 
-Read `plan.md`. This contains:
-- Which expectation you're implementing
-- What facets to create (if any)
-- What behavior tests to write
-- What code to implement
-- How to run tests
+Read `plan.md`. This contains what to build, what tests to write, and how to verify.
 
 If `plan.md` contains only `COMPLETE`, output `<bdd>COMPLETE</bdd>` and stop.
 
-## Step 2: Create Facets (if the plan says to)
+## Step 2: Write Tests
 
-Run any `bdd add facet` commands specified in the plan.
+Write the tests described in the plan using the project's native test framework. Each test should exercise the full program as described.
 
-## Step 3: Write Behavior Tests
+## Step 3: Implement
 
-For each facet in the plan:
-1. Write the behavior test in the project's native test framework as specified
-2. Ensure the test exercises the full program (not isolated units)
-3. Link it: `bdd link <facet-id> <test-identifier>`
+Write the code as described in the plan:
+- Create or modify the files specified
+- Implement the functions and logic described
+- Follow the existing patterns noted in the plan
+- Add any dependencies listed
 
-## Step 4: Implement
+## Step 4: Run ALL Tests with Coverage
 
-Write the code as described in the plan. Follow the plan's guidance on:
-- Which files to create or modify
-- What functions and logic to implement
-- What patterns to follow
+Run the full test suite with coverage (see `.claude/CLAUDE.md` for the command). Not just new tests — catch regressions. Fix any failures before continuing.
 
-## Step 5: Run ALL Tests and Collect Coverage
+If the test command includes `bdd coverage`, run it to regenerate the coverage map.
 
-Run the full test suite with per-test coverage collection (see `.claude/CLAUDE.md` for the command). Not just new tests — catch regressions. The test command MUST include per-test coverage collection and `bdd coverage` to regenerate the coverage map. Fix any failures before continuing.
+## Step 5: Update Facet Statuses
 
-## Step 6: Update Statuses
+After tests pass, update the catalog:
+- `bdd mark <facet-id> passing` for each facet whose linked test passes
+- `bdd mark <facet-id> failing` for any that still fail
 
-For each facet you worked on:
-- `bdd mark <facet-id> passing` if its test passes
-- `bdd mark <facet-id> failing` if its test still fails
+To find which facets correspond to your work, run `bdd next` or `bdd tree` to see the current expectation and its facets.
 
-## Step 7: Commit
+## Step 6: Commit
 
 Commit your changes:
 ```
-git add -A && git commit -m "feat: <expectation-id> — <expectation text>"
+git add -A && git commit -m "feat: <short description of what was built>"
 ```
 
-## Step 8: Record Progress
+## Step 7: Record Progress
 
 Append to `progress.txt`:
 ```
 ## Iteration — <date>
-Expectation: <id> — <text>
-Status: satisfied / partial
+What: <what was built>
+Status: complete / partial
 Files changed: <list>
 Learnings: <anything useful for future iterations>
 ```
 
-## Step 9: Check Completion
+## Step 8: Check Completion
 
 Run `bdd status`. If all expectations are satisfied (unsatisfied = 0), output:
 ```
@@ -70,9 +63,8 @@ Run `bdd status`. If all expectations are satisfied (unsatisfied = 0), output:
 
 ## Rules
 
-- Follow the plan. Don't freelance.
-- If the plan has a mistake, fix it minimally — don't redesign.
+- Follow the plan. Don't redesign.
+- If the plan has a mistake, fix it minimally.
 - Always run the FULL test suite before marking anything as passing.
 - If you get stuck, mark the facet as failing, record what went wrong in progress.txt, and move on.
-- Never modify catalog.json directly — always use the `bdd` CLI.
-- ONE expectation per iteration.
+- ONE iteration, ONE expectation.
