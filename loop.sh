@@ -1,7 +1,9 @@
 #!/bin/bash
-# loop.sh — Autonomous BDD implementation loop (two-phase).
+# loop.sh — Autonomous BDD implementation loop.
+# Phase 0: run tests (establish ground truth, exit if all satisfied)
 # Phase 1: Planning agent reads codebase and writes plan.md
 # Phase 2: Implementation agent executes plan.md
+# Phase 3: run tests (verify, track progress)
 # Usage: ./loop.sh [max_iterations]
 # Logs to bdd_loop.log in the current directory.
 
@@ -18,14 +20,12 @@ log() {
   echo "$@" | tee -a "$LOG"
 }
 
+run_tests() {
+  python3 "$SCRIPT_DIR/bdd_server.py" --run-tests "$(pwd)"
+}
+
 run_claude() {
   local prompt_file="$1"
-  # (unset CLAUDECODE; cat "$prompt_file" | claude -p \
-  #   --dangerously-skip-permissions \
-  #   --allow-dangerously-skip-permissions \
-  #   --disallowedTools EnterPlanMode \
-  #   2>&1) | tee -a "$LOG" || true
-
   unset CLAUDECODE
   cat "$prompt_file" | claude -p \
     --dangerously-skip-permissions \
@@ -50,29 +50,20 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   log "=== Iteration $i of $MAX_ITERATIONS === $(date)"
   log "=========================================="
 
-  # Check if there's work to do
-  REMAINING=$(bdd --json status | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['unsatisfied'])")
-  # if [ "$REMAINING" = "0" ]; then
-  #   log "All expectations satisfied!"
-  #   bdd status | tee -a "$LOG"
-  #   exit 0
-  # fi
-
-  log "Unsatisfied expectations: $REMAINING"
+  # Phase 0: Establish ground truth
+  log ""
+  log "--- Phase 0: Ground Truth (run tests) ---"
+  if run_tests 2>&1 | tee -a "$LOG"; then
+    log ""
+    log "All expectations satisfied!"
+    exit 0
+  fi
 
   # Phase 1: Plan
   log ""
   log "--- Phase 1: Planning ---"
   rm -f plan.md
   run_claude "$SCRIPT_DIR/plan.md"
-
-  # Check if planning agent said we're done
-#  if [ -f plan.md ] && head -1 plan.md | grep -q "COMPLETE"; then
-#    log ""
-#    log "All expectations satisfied!"
-#    bdd status | tee -a "$LOG"
-#    exit 0
-#  fi
 
   if [ ! -f plan.md ]; then
     log "WARNING: Planning agent did not create plan.md. Skipping iteration."
@@ -87,10 +78,12 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   log "--- Phase 2: Executing ---"
   run_claude "$SCRIPT_DIR/iteration.md"
 
-  if tail -100 "$LOG" | grep -q "<bdd>COMPLETE</bdd>"; then
+  # Phase 3: Verify
+  log ""
+  log "--- Phase 3: Verify (run tests) ---"
+  if run_tests 2>&1 | tee -a "$LOG"; then
     log ""
     log "All expectations satisfied!"
-    bdd status | tee -a "$LOG"
     exit 0
   fi
 
@@ -100,5 +93,4 @@ done
 
 log ""
 log "Reached max iterations ($MAX_ITERATIONS)."
-log "Run 'bdd status' to check progress."
-bdd status | tee -a "$LOG"
+log "Run bdd_status MCP tool to check progress."

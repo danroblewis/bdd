@@ -8,9 +8,14 @@ Used by humans, Curation Claude, and Implementation Claude.
 import argparse
 import json
 import os
+import subprocess
 import sys
 
 CATALOG_FILE = "catalog.json"
+BDD_CONFIG_FILE = "bdd.json"
+
+VALID_RESULTS_FORMATS = ("junit", "pytest-json", "cargo-json")
+VALID_COVERAGE_FORMATS = ("coverage-json", "lcov", "lcov-dir", "cobertura")
 
 def find_catalog():
     """Find catalog.json in current directory or parents."""
@@ -36,6 +41,142 @@ def save_catalog(catalog, path):
     with open(path, "w") as f:
         json.dump(catalog, f, indent=2)
         f.write("\n")
+
+def find_bdd_config():
+    """Find bdd.json next to catalog.json."""
+    cat_path = find_catalog()
+    return os.path.join(os.path.dirname(cat_path), BDD_CONFIG_FILE)
+
+def load_bdd_config():
+    """Load and validate bdd.json."""
+    config_path = find_bdd_config()
+    if not os.path.exists(config_path):
+        print(f"Error: No {BDD_CONFIG_FILE} found. Create one with test_command, results_format, results_file, coverage_format, coverage_file.", file=sys.stderr)
+        sys.exit(1)
+    with open(config_path) as f:
+        config = json.load(f)
+    required = ("test_command", "results_format", "results_file", "coverage_format", "coverage_file")
+    missing = [k for k in required if k not in config]
+    if missing:
+        print(f"Error: {BDD_CONFIG_FILE} missing required fields: {', '.join(missing)}", file=sys.stderr)
+        sys.exit(1)
+    if config["results_format"] not in VALID_RESULTS_FORMATS:
+        print(f"Error: results_format must be one of: {', '.join(VALID_RESULTS_FORMATS)}", file=sys.stderr)
+        sys.exit(1)
+    if config["coverage_format"] not in VALID_COVERAGE_FORMATS:
+        print(f"Error: coverage_format must be one of: {', '.join(VALID_COVERAGE_FORMATS)}", file=sys.stderr)
+        sys.exit(1)
+    return config, config_path
+
+# --- Result Parsers ---
+
+def parse_junit_results(filepath):
+    """Parse JUnit XML results file. Returns {test_id: 'passed'|'failed'|'skipped'}."""
+    import xml.etree.ElementTree as ET
+    results = {}
+    tree = ET.parse(filepath)
+    root = tree.getroot()
+    # Handle both <testsuites><testsuite>... and <testsuite>... root
+    suites = root.findall(".//testsuite") if root.tag == "testsuites" else [root]
+    for suite in suites:
+        for tc in suite.findall("testcase"):
+            classname = tc.get("classname", "")
+            name = tc.get("name", "")
+            # Build test_id like pytest: tests/test_foo.py::test_bar or tests.test_foo::test_bar
+            if classname:
+                test_id = f"{classname}::{name}"
+            else:
+                test_id = name
+            if tc.find("failure") is not None or tc.find("error") is not None:
+                results[test_id] = "failed"
+            elif tc.find("skipped") is not None:
+                results[test_id] = "skipped"
+            else:
+                results[test_id] = "passed"
+    return results
+
+def parse_pytest_json_results(filepath):
+    """Parse pytest JSON report. Returns {test_id: 'passed'|'failed'|'skipped'}."""
+    with open(filepath) as f:
+        data = json.load(f)
+    results = {}
+    for test in data.get("tests", []):
+        test_id = test.get("nodeid", "")
+        outcome = test.get("outcome", "")
+        if outcome == "passed":
+            results[test_id] = "passed"
+        elif outcome in ("failed", "error"):
+            results[test_id] = "failed"
+        elif outcome == "skipped":
+            results[test_id] = "skipped"
+    return results
+
+def parse_cargo_json_results(filepath):
+    """Parse cargo test JSON output. Returns {test_id: 'passed'|'failed'|'skipped'}."""
+    results = {}
+    with open(filepath) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "test" and event.get("event") in ("ok", "failed", "ignored"):
+                name = event.get("name", "")
+                ev = event["event"]
+                if ev == "ok":
+                    results[name] = "passed"
+                elif ev == "failed":
+                    results[name] = "failed"
+                elif ev == "ignored":
+                    results[name] = "skipped"
+    return results
+
+RESULT_PARSERS = {
+    "junit": parse_junit_results,
+    "pytest-json": parse_pytest_json_results,
+    "cargo-json": parse_cargo_json_results,
+}
+
+# --- Test ID Matching ---
+
+def normalize_test_id(test_id):
+    """Strip extensions, normalize separators, lowercase."""
+    # Remove common extensions
+    for ext in (".py", ".rs", ".js", ".ts", ".go"):
+        test_id = test_id.replace(ext, "")
+    # Normalize path separators to dots
+    test_id = test_id.replace("/", ".").replace("\\", ".")
+    return test_id.lower()
+
+def match_test_to_facet(result_ids, facet_test_id):
+    """Match a facet's test field against result test IDs using 3 strategies.
+    Returns (matched_result_id, status) or (None, None)."""
+    if not facet_test_id:
+        return None, None
+
+    # Strategy 1: Exact match
+    if facet_test_id in result_ids:
+        return facet_test_id, result_ids[facet_test_id]
+
+    # Strategy 2: Normalized match
+    norm_facet = normalize_test_id(facet_test_id)
+    for rid, status in result_ids.items():
+        if normalize_test_id(rid) == norm_facet:
+            return rid, status
+
+    # Strategy 3: Suffix match (match on function name after ::)
+    if "::" in facet_test_id:
+        facet_suffix = facet_test_id.rsplit("::", 1)[-1].lower()
+        for rid, status in result_ids.items():
+            if "::" in rid:
+                rid_suffix = rid.rsplit("::", 1)[-1].lower()
+                if rid_suffix == facet_suffix:
+                    return rid, status
+
+    return None, None
 
 def next_id(nodes, prefix):
     max_n = 0
@@ -139,6 +280,19 @@ def cmd_status(args):
         print(f"  Failing:    {len(failing)}")
         print(f"  Untested:   {len(untested)}")
         print(f"Coverage:     {coverage:.0f}%")
+
+        unsatisfied_exps = [e for e in expectations if compute_status(nodes, e) != "passing"]
+        unsatisfied_exps.sort(key=lambda e: e.get("priority", 99))
+        if unsatisfied_exps:
+            print(f"\nTop unsatisfied ({len(unsatisfied_exps)} total):")
+            for exp in unsatisfied_exps[:10]:
+                parent = get_node(nodes, exp.get("parent"))
+                prefix = parent["id"] if parent else "?"
+                status = compute_status(nodes, exp)
+                print(f"  {exp['id']} [{status}] {exp['text']}  ({prefix})")
+                for f in get_children(nodes, exp["id"]):
+                    if f.get("status", "untested") != "passing":
+                        print(f"    {f['id']} [{f.get('status', 'untested')}] {f['text']}")
 
 def cmd_next(args):
     catalog, _ = load_catalog()
@@ -544,11 +698,29 @@ def cmd_coverage(args):
             if isinstance(contexts, dict):
                 # Format: {context_name: [line_numbers]}
                 for context_name, lines in contexts.items():
-                    # Match context to test identifier
+                    # Match context to test identifier (precise matching)
+                    # coverage.py contexts look like "test_id|run" — strip suffix
+                    clean_ctx = context_name.split("|")[0].strip()
                     matched_facets = []
-                    for test_id, facet_ids in test_to_facets.items():
-                        if test_id in context_name or context_name in test_id:
-                            matched_facets.extend(facet_ids)
+                    # Exact match
+                    if clean_ctx in test_to_facets:
+                        matched_facets = test_to_facets[clean_ctx]
+                    else:
+                        # Normalized match
+                        norm_ctx = normalize_test_id(clean_ctx)
+                        for test_id, facet_ids in test_to_facets.items():
+                            if normalize_test_id(test_id) == norm_ctx:
+                                matched_facets.extend(facet_ids)
+                                break
+                        # Suffix match
+                        if not matched_facets and "::" in clean_ctx:
+                            ctx_suffix = clean_ctx.rsplit("::", 1)[-1].lower()
+                            for test_id, facet_ids in test_to_facets.items():
+                                if "::" in test_id:
+                                    tid_suffix = test_id.rsplit("::", 1)[-1].lower()
+                                    if tid_suffix == ctx_suffix:
+                                        matched_facets.extend(facet_ids)
+                                        break
                     if matched_facets:
                         for line in lines:
                             add_line(filepath, line, matched_facets)
@@ -639,6 +811,120 @@ def cmd_coverage(args):
         print(f"Coverage map updated: {len(serializable)} files, {total_lines} lines mapped")
         print(f"Written to {coverage_map_path}")
 
+def cmd_test(args):
+    """Run tests, parse results, update facet statuses, run coverage."""
+    config, config_path = load_bdd_config()
+    catalog, cat_path = load_catalog()
+    nodes = catalog["nodes"]
+    project_root = os.path.dirname(cat_path)
+
+    # Step 1: Run test command
+    test_cmd = config["test_command"]
+    if not args.quiet and not args.json:
+        print(f"Running: {test_cmd}")
+    capture = args.quiet or args.json
+    result = subprocess.run(test_cmd, shell=True, cwd=project_root,
+                            capture_output=capture, text=True)
+    test_exit_code = result.returncode
+
+    # Step 2: Parse results file
+    results_file = os.path.join(project_root, config["results_file"])
+    if not os.path.exists(results_file):
+        print(f"Error: Results file not found: {results_file}", file=sys.stderr)
+        if not args.quiet and result.stderr:
+            print(result.stderr, file=sys.stderr)
+        sys.exit(1)
+
+    parser = RESULT_PARSERS[config["results_format"]]
+    test_results = parser(results_file)
+
+    # Step 3: Match results to facets and update statuses
+    updated = []
+    facets = [n for n in nodes if n["type"] == "facet"]
+    for facet in facets:
+        if not facet.get("test"):
+            continue
+        matched_id, status = match_test_to_facet(test_results, facet["test"])
+        if matched_id is not None:
+            old_status = facet.get("status", "untested")
+            if status == "passed":
+                new_status = "passing"
+            elif status == "failed":
+                new_status = "failing"
+            else:
+                continue  # skip skipped tests
+            if old_status != new_status:
+                facet["status"] = new_status
+                updated.append({"id": facet["id"], "old": old_status, "new": new_status, "test": matched_id})
+
+    save_catalog(catalog, cat_path)
+
+    # Step 4: Run coverage parsing
+    coverage_file = os.path.join(project_root, config["coverage_file"])
+    coverage_ok = False
+    if os.path.exists(coverage_file):
+        # Build a fake args object for cmd_coverage
+        class CoverageArgs:
+            pass
+        cov_args = CoverageArgs()
+        cov_args.file = coverage_file
+        cov_args.dir = None
+        cov_args.format = config["coverage_format"]
+        cov_args.json = False
+        # Suppress coverage output (it goes to stdout)
+        old_stdout = sys.stdout
+        try:
+            sys.stdout = open(os.devnull, 'w')
+            cmd_coverage(cov_args)
+            coverage_ok = True
+        except SystemExit:
+            pass
+        finally:
+            sys.stdout.close()
+            sys.stdout = old_stdout
+
+    # Step 5: Compute summary
+    # Reload catalog after save
+    catalog, _ = load_catalog(cat_path)
+    nodes = catalog["nodes"]
+    facets = [n for n in nodes if n["type"] == "facet"]
+    passing = [f for f in facets if f.get("status") == "passing"]
+    failing = [f for f in facets if f.get("status") == "failing"]
+    untested = [f for f in facets if f.get("status", "untested") == "untested"]
+    expectations = [n for n in nodes if n["type"] == "expectation"]
+    satisfied = sum(1 for e in expectations if compute_status(nodes, e) == "passing")
+    all_satisfied = satisfied == len(expectations) and len(expectations) > 0
+
+    if args.json:
+        print(json.dumps({
+            "test_exit_code": test_exit_code,
+            "results_parsed": len(test_results),
+            "facets_updated": updated,
+            "passing": len(passing),
+            "failing": len(failing),
+            "untested": len(untested),
+            "satisfied": satisfied,
+            "total_expectations": len(expectations),
+            "all_satisfied": all_satisfied,
+            "coverage_updated": coverage_ok,
+        }))
+    elif not args.quiet:
+        if updated:
+            print()
+            print("Facet updates:")
+            for u in updated:
+                print(f"  {u['id']}: {u['old']} -> {u['new']}")
+        print()
+        print(f"Results: {len(test_results)} tests parsed")
+        print(f"Facets:  {len(passing)} passing, {len(failing)} failing, {len(untested)} untested")
+        print(f"Expectations: {satisfied}/{len(expectations)} satisfied")
+        if coverage_ok:
+            print(f"Coverage map updated")
+        if all_satisfied:
+            print("All expectations satisfied!")
+
+    sys.exit(0 if all_satisfied else 1)
+
 SETUP_NODES = [
     {
         "type": "goal",
@@ -660,12 +946,17 @@ SETUP_NODES = [
     },
     {
         "type": "facet",
-        "text": "Running the test command produces a per-test coverage report",
+        "text": "Running the test command produces a coverage report with non-zero hit counts on source lines (tests must call into the source crate as a library, not shell out to a separate binary)",
         "parent_ref": "coverage_exp",
     },
     {
         "type": "facet",
-        "text": "bdd coverage parses the report and generates coverage_map.json",
+        "text": "bdd_test builds the index and bdd_motivation returns facet chains for source files",
+        "parent_ref": "coverage_exp",
+    },
+    {
+        "type": "facet",
+        "text": "bdd.json is configured with test_command, results, and coverage settings",
         "parent_ref": "coverage_exp",
     },
     {
@@ -715,6 +1006,10 @@ SETUP_RULE = """\
 This file is read by the planning agent when working on setup expectations.
 It explains how to set up per-test coverage and behavior test infrastructure.
 
+The `bdd_test` MCP tool handles everything: running tests, parsing results,
+parsing coverage, updating facet statuses, and building the index. You just
+need to configure `bdd.json` so it knows your test command and output formats.
+
 ## Step 1: Detect the Project Language
 
 Check for these files to determine the stack:
@@ -733,34 +1028,84 @@ the initial project structure (e.g., `cargo init`, `npm init`, etc.).
 rustup component add llvm-tools-preview
 cargo install cargo-llvm-cov
 ```
-Test command: `cargo llvm-cov --lcov --output-path coverage.lcov && bdd coverage --file coverage.lcov`
-
-Note: For per-test granularity with Rust, run each integration test separately
-with `cargo llvm-cov` and merge results using `--lcov-dir` mode.
 
 ### Python
 ```bash
 pip install pytest pytest-cov
 ```
-Test command: `pytest tests/ --cov=<source_pkg> --cov-context=test --cov-report=json:coverage.json && bdd coverage --file coverage.json`
-
 The `--cov-context=test` flag is critical — it records which test covered each line.
 
 ### Node.js
 ```bash
 npm install --save-dev c8  # or nyc
 ```
-Test command: `NODE_V8_COVERAGE=.coverage npx jest && bdd coverage --dir .coverage`
-
-Or with c8: `npx c8 --reporter=lcov jest && bdd coverage --file coverage/lcov.info`
 
 ### Go
 ```bash
 # No additional tooling needed — go test has built-in coverage
 ```
-Test command: `go test -coverprofile=coverage.out ./... && bdd coverage --file coverage.out --format lcov`
 
-## Step 3: Write the First Behavior Test
+## Step 3: Configure bdd.json
+
+Edit the `bdd.json` file in the project root. It has two jobs:
+1. **test_command** — a single shell command that runs tests AND produces coverage
+2. **Output files** — where to find results and coverage after the command runs
+
+The `bdd_test` MCP tool reads this config, runs `test_command`, then parses the
+output files to update facet statuses and build the code-to-intent index.
+
+### Format reference:
+
+- `results_format`: `junit` (pytest --junitxml, cargo test), `pytest-json` (pytest-json-report), `cargo-json` (cargo test -- -Z unstable-options --format json)
+- `coverage_format`: `coverage-json` (coverage.py JSON with per-test contexts), `lcov`, `lcov-dir`, `cobertura`
+
+### Language-specific bdd.json examples:
+
+**Rust:**
+```json
+{
+  "test_command": "cargo llvm-cov --lcov --output-path coverage.lcov -- --format junit > results.xml",
+  "results_format": "junit",
+  "results_file": "results.xml",
+  "coverage_format": "lcov",
+  "coverage_file": "coverage.lcov"
+}
+```
+
+**Python:**
+```json
+{
+  "test_command": "pytest tests/ --cov=src --cov-context=test --cov-report=json:coverage.json --junitxml=results.xml",
+  "results_format": "junit",
+  "results_file": "results.xml",
+  "coverage_format": "coverage-json",
+  "coverage_file": "coverage.json"
+}
+```
+
+**Node.js:**
+```json
+{
+  "test_command": "npx c8 --reporter=lcov jest --ci --reporters=jest-junit",
+  "results_format": "junit",
+  "results_file": "junit.xml",
+  "coverage_format": "lcov",
+  "coverage_file": "coverage/lcov.info"
+}
+```
+
+**Go:**
+```json
+{
+  "test_command": "go test -coverprofile=coverage.out -v ./... 2>&1 | go-junit-report > results.xml",
+  "results_format": "junit",
+  "results_file": "results.xml",
+  "coverage_format": "lcov",
+  "coverage_file": "coverage.out"
+}
+```
+
+## Step 4: Write the First Behavior Test
 
 Behavior tests exercise the FULL program, not isolated units:
 - For a CLI tool: invoke the binary with inputs, check stdout/stderr
@@ -769,30 +1114,29 @@ Behavior tests exercise the FULL program, not isolated units:
 - For a library: import and run the public API end-to-end
 
 Write the test in the project's native test framework (pytest, #[test], jest, etc.).
-Link it to a catalog facet with `bdd link <facet-id> <test-identifier>`.
+Link it to a catalog facet with the `bdd_link` MCP tool.
 
-## Step 4: Verify the Coverage Pipeline
+## Step 5: Verify the Pipeline
 
-Run the full test command and verify:
-1. Tests pass
-2. A coverage report is produced
-3. `bdd coverage --file <report>` creates `coverage_map.json`
-4. `bdd related <some-source-file>` returns results with line-level facet mapping
+Call `bdd_test()` and verify:
+1. Tests run and produce results
+2. Facet statuses are updated automatically
+3. `.bdd/index.json` is created with the forward/reverse motivation maps
+4. `bdd_motivation("some/source/file.rs")` returns facet chains
 
-## Step 5: Fill in CLAUDE.md
+## Step 6: Fill in CLAUDE.md
 
 Edit `.claude/CLAUDE.md` and fill in:
 - **Stack**: language, framework, key libraries
 - **Build**: the build command
-- **Test (with per-test coverage)**: the full test + coverage + bdd coverage pipeline
+- **Test**: configured via bdd.json, run with `bdd_test` MCP tool
 - **Key Paths**: important source directories and files
 
-## Step 6: Update settings.json Permissions
+## Step 7: Update settings.json Permissions
 
 Edit `.claude/settings.json` to add project-specific Bash permissions:
 - Build commands (e.g., `Bash(cargo build*)`)
 - Test commands (e.g., `Bash(cargo test*)`, `Bash(cargo llvm-cov*)`)
-- Coverage commands (`Bash(bdd coverage*)`)
 """
 
 def cmd_setup(args):
@@ -884,13 +1228,103 @@ def cmd_setup(args):
         f.write(SETUP_RULE)
     print(f"Created {setup_rule_path}")
 
+    # Step 4: Create bdd.json template with smart defaults
+    bdd_config_path = os.path.join(project_dir, BDD_CONFIG_FILE)
+    if not os.path.exists(bdd_config_path):
+        # Detect language for smart defaults
+        if os.path.exists(os.path.join(project_dir, "Cargo.toml")):
+            config_template = {
+                "test_command": "cargo llvm-cov --lcov --output-path coverage.lcov -- --format junit > results.xml",
+                "results_format": "junit",
+                "results_file": "results.xml",
+                "coverage_format": "lcov",
+                "coverage_file": "coverage.lcov",
+            }
+        elif os.path.exists(os.path.join(project_dir, "package.json")):
+            config_template = {
+                "test_command": "npx jest --ci --coverage --coverageReporters=json --reporters=jest-junit",
+                "results_format": "junit",
+                "results_file": "junit.xml",
+                "coverage_format": "coverage-json",
+                "coverage_file": "coverage/coverage-final.json",
+            }
+        elif any(os.path.exists(os.path.join(project_dir, f)) for f in ("pyproject.toml", "setup.py", "requirements.txt")):
+            config_template = {
+                "test_command": "pytest tests/ --cov=src --cov-context=test --cov-report=json:coverage.json --junitxml=results.xml",
+                "results_format": "junit",
+                "results_file": "results.xml",
+                "coverage_format": "coverage-json",
+                "coverage_file": "coverage.json",
+            }
+        elif os.path.exists(os.path.join(project_dir, "go.mod")):
+            config_template = {
+                "test_command": "go test -coverprofile=coverage.out -v ./... 2>&1 | go-junit-report > results.xml",
+                "results_format": "junit",
+                "results_file": "results.xml",
+                "coverage_format": "lcov",
+                "coverage_file": "coverage.out",
+            }
+        else:
+            config_template = {
+                "test_command": "echo 'Configure your test command'",
+                "results_format": "junit",
+                "results_file": "results.xml",
+                "coverage_format": "coverage-json",
+                "coverage_file": "coverage.json",
+            }
+        with open(bdd_config_path, "w") as f:
+            json.dump(config_template, f, indent=2)
+            f.write("\n")
+        print(f"Created {bdd_config_path} (edit test_command for your project)")
+    else:
+        print(f"{BDD_CONFIG_FILE} already exists, skipping")
+
+    # Step 5: Create .mcp.json pointing to bdd_server.py
+    mcp_config_path = os.path.join(project_dir, ".mcp.json")
+    bdd_server_path = os.path.join(bdd_dir, "bdd_server.py")
+    if not os.path.exists(mcp_config_path):
+        mcp_config = {
+            "mcpServers": {
+                "bdd-catalog": {
+                    "command": "python3",
+                    "args": [bdd_server_path, project_dir]
+                }
+            }
+        }
+        with open(mcp_config_path, "w") as f:
+            json.dump(mcp_config, f, indent=2)
+            f.write("\n")
+        print(f"Created {mcp_config_path}")
+    else:
+        print(f".mcp.json already exists, skipping")
+
+    # Step 6: Create .bdd/ directory, add to .gitignore
+    bdd_state_dir = os.path.join(project_dir, ".bdd")
+    os.makedirs(bdd_state_dir, exist_ok=True)
+
+    gitignore_path = os.path.join(project_dir, ".gitignore")
+    gitignore_entries = [".bdd/"]
+    if os.path.exists(gitignore_path):
+        with open(gitignore_path) as f:
+            existing = f.read()
+        for entry in gitignore_entries:
+            if entry not in existing:
+                with open(gitignore_path, "a") as f:
+                    f.write(f"\n{entry}\n")
+                print(f"Added {entry} to .gitignore")
+    else:
+        with open(gitignore_path, "w") as f:
+            f.write("\n".join(gitignore_entries) + "\n")
+        print(f"Created .gitignore with {', '.join(gitignore_entries)}")
+
     # Summary
     print()
     print("Setup complete. Next steps:")
     print("  1. cd to your project directory")
-    print("  2. Run the agent loop: ./loop.sh")
+    print("  2. Edit bdd.json with your test command")
+    print("  3. Run the agent loop: ./loop.sh")
     print("     Or interactively: claude")
-    print("  3. The agent will pick up setup expectations first (priority 0)")
+    print("  4. The agent will pick up setup expectations first (priority 0)")
     print()
     if os.path.exists(catalog_path):
         # Show status
@@ -970,6 +1404,11 @@ def main():
     p.add_argument("--format", choices=["coverage-json", "lcov", "lcov-dir", "cobertura"],
                    help="Coverage format (auto-detected if not specified)")
 
+    # test
+    p = sub.add_parser("test", help="Run tests, parse results, update facets, run coverage")
+    p.add_argument("--verbose", action="store_true", help="Show detailed output")
+    p.add_argument("--quiet", action="store_true", help="Suppress output (except errors)")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -991,6 +1430,7 @@ def main():
         "edit": cmd_edit,
         "coverage": cmd_coverage,
         "setup": cmd_setup,
+        "test": cmd_test,
     }
     cmd[args.command](args)
 

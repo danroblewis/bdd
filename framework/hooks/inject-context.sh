@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# inject-context.sh — Surface BDD context after tool use.
-# Called as a PostToolUse hook. Receives JSON on stdin with fields:
-#   tool_name, tool_input, tool_response, session_id, cwd, etc.
-#
-# - After Read: injects motivation context for source files (line-level)
-# - After Bash: shows unsatisfied expectations after test runs
+# inject-context.sh — Surface BDD motivation context after Read tool use.
+# Reads .bdd/index.json directly (no CLI dependency).
+# Called as a PostToolUse hook for Read. Receives JSON on stdin.
+
+LOGFILE="${CLAUDE_PROJECT_DIR:-.}/.bdd/hook.log"
+
+log() {
+    local ts
+    ts=$(date '+%H:%M:%S')
+    echo "[$ts] $*" >> "$LOGFILE" 2>/dev/null
+}
 
 # Find the project root (where catalog.json lives)
 find_project_root() {
@@ -19,100 +24,146 @@ find_project_root() {
     return 1
 }
 
-PROJECT_ROOT=$(find_project_root 2>/dev/null) || exit 0
+PROJECT_ROOT=$(find_project_root 2>/dev/null)
+if [ -z "$PROJECT_ROOT" ]; then
+    log "no project root found (no catalog.json)"
+    exit 0
+fi
 
-BDD_CMD=$(which bdd 2>/dev/null || echo "")
-[ -n "$BDD_CMD" ] || exit 0
+INDEX_FILE="$PROJECT_ROOT/.bdd/index.json"
+CATALOG_FILE="$PROJECT_ROOT/catalog.json"
+
+if [ ! -f "$INDEX_FILE" ]; then
+    log "no index file: $INDEX_FILE"
+    exit 0
+fi
+if [ ! -f "$CATALOG_FILE" ]; then
+    log "no catalog file: $CATALOG_FILE"
+    exit 0
+fi
 
 # Read hook input from stdin
 HOOK_INPUT=$(cat)
+log "hook fired, input length: ${#HOOK_INPUT}"
 
-TOOL_NAME=$(echo "$HOOK_INPUT" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    print(data.get('tool_name', ''))
-except:
-    print('')
-" 2>/dev/null)
+# Pass hook input via stdin to python, not shell interpolation
+echo "$HOOK_INPUT" | python3 -c "
+import sys, json, os
 
-if [ "$TOOL_NAME" = "Read" ]; then
-    # --- Read hook: inject line-level motivation context ---
-    eval "$(echo "$HOOK_INPUT" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    ti = data.get('tool_input', {})
-    fp = ti.get('file_path', '')
-    offset = ti.get('offset', '')
-    limit = ti.get('limit', '')
-    print(f'FILE_PATH=\"{fp}\"')
-    print(f'READ_OFFSET=\"{offset}\"')
-    print(f'READ_LIMIT=\"{limit}\"')
-except:
-    print('FILE_PATH=\"\"')
-" 2>/dev/null)"
+hook = json.load(sys.stdin)
+tool_name = hook.get('tool_name', '')
+if tool_name != 'Read':
+    sys.exit(0)
 
-    [ -n "$FILE_PATH" ] || exit 0
+ti = hook.get('tool_input', {})
+file_path = ti.get('file_path', '')
+if not file_path:
+    sys.exit(0)
 
-    # Skip non-source files
-    case "$FILE_PATH" in
-        *test*|*/catalog.json|*/coverage_map.json|*.md|*.toml|*.yaml|*.yml|*.lock|*.json|*.cfg|*.ini)
-            exit 0
-            ;;
-    esac
+# Log helper — append to logfile
+logfile = '$LOGFILE'
+def log(msg):
+    if logfile:
+        try:
+            with open(logfile, 'a') as f:
+                f.write(f'  py: {msg}\n')
+        except:
+            pass
 
-    # Build --lines args if offset/limit provided
-    LINES_ARGS=""
-    if [ -n "$READ_OFFSET" ] && [ -n "$READ_LIMIT" ]; then
-        LINE_END=$((READ_OFFSET + READ_LIMIT))
-        LINES_ARGS="--lines $READ_OFFSET $LINE_END"
-    fi
+log(f'Read: {file_path}')
 
-    # Look up motivation chain
-    RELATED=$($BDD_CMD --json related "$FILE_PATH" $LINES_ARGS 2>/dev/null || echo "")
-    [ -n "$RELATED" ] || exit 0
-
-    echo "$RELATED" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    related = data.get('related', [])
-    if not related:
+# Skip non-source files
+skip_patterns = ('test', 'catalog.json', 'index.json', '.md', '.toml', '.yaml',
+                 '.yml', '.lock', '.json', '.cfg', '.ini', '.bdd/')
+for pat in skip_patterns:
+    if pat in file_path:
+        log(f'skipped (pattern: {pat})')
         sys.exit(0)
-    lines = []
-    for r in related:
-        for c in r.get('chains', []):
-            parts = ' > '.join(f\"{n['id']}: {n['text']}\" for n in c['chain'])
-            lines.append(f'  {parts}')
-    if lines:
-        print()
-        print('--- BDD: This code exists because ---')
-        for l in lines:
-            print(l)
-        print('---')
-except:
-    pass
-" 2>/dev/null
 
-elif [ "$TOOL_NAME" = "Bash" ]; then
-    # --- Bash hook: show status after test runs ---
-    COMMAND=$(echo "$HOOK_INPUT" | python3 -c "
-import sys, json
+project_root = '$PROJECT_ROOT'
+index_file = '$INDEX_FILE'
+catalog_file = '$CATALOG_FILE'
+
+# Load index
 try:
-    data = json.load(sys.stdin)
-    print(data.get('tool_input', {}).get('command', ''))
-except:
-    print('')
-" 2>/dev/null)
+    with open(index_file) as f:
+        index = json.load(f)
+    with open(catalog_file) as f:
+        catalog = json.load(f)
+except Exception as e:
+    log(f'load error: {e}')
+    sys.exit(0)
 
-    if echo "$COMMAND" | grep -qiE 'pytest|cargo.test|cargo.llvm-cov|jest|vitest|go.test|npm.test|bdd.coverage'; then
-        UNSATISFIED=$($BDD_CMD --json status 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['unsatisfied'])" 2>/dev/null || echo "")
-        if [ -n "$UNSATISFIED" ] && [ "$UNSATISFIED" != "0" ]; then
-            echo ""
-            echo "--- BDD: $UNSATISFIED unsatisfied expectations remaining ---"
-            $BDD_CMD next 2>/dev/null | head -10
-            echo "---"
-        fi
-    fi
-fi
+forward = index.get('forward', {})
+nodes = catalog.get('nodes', [])
+log(f'index has {len(forward)} files, catalog has {len(nodes)} nodes')
+
+# Find matching file in forward map
+rel_path = os.path.relpath(file_path, project_root) if os.path.isabs(file_path) else file_path
+matched = {f: lines for f, lines in forward.items() if rel_path in f or f in rel_path}
+if not matched:
+    log(f'no match for {rel_path}')
+    sys.exit(0)
+
+log(f'matched {len(matched)} files for {rel_path}')
+
+# Get line range
+offset = ti.get('offset', 0) or 0
+limit = ti.get('limit', 0) or 0
+start_line = int(offset) if offset else 0
+end_line = int(offset) + int(limit) if offset and limit else 0
+
+# Collect facet IDs
+facet_ids = set()
+for src_file, line_map in matched.items():
+    for ls, fids in line_map.items():
+        if start_line and end_line:
+            if not (start_line <= int(ls) <= end_line):
+                continue
+        for fid in fids:
+            facet_ids.add(fid)
+
+if not facet_ids:
+    log(f'no facets for matched lines')
+    sys.exit(0)
+
+log(f'found {len(facet_ids)} facets: {sorted(facet_ids)}')
+
+# Build deduplicated tree from facet chains
+node_map = {n['id']: n for n in nodes}
+tree_nodes = {}  # nid -> {node, children set}
+tree_roots = set()
+for fid in sorted(facet_ids):
+    chain = []
+    current = node_map.get(fid)
+    while current:
+        chain.append(current)
+        pid = current.get('parent')
+        current = node_map.get(pid) if pid else None
+    chain.reverse()
+    for i, n in enumerate(chain):
+        if n['id'] not in tree_nodes:
+            tree_nodes[n['id']] = {'node': n, 'children': set()}
+        if i > 0:
+            tree_nodes[chain[i-1]['id']]['children'].add(n['id'])
+        else:
+            tree_roots.add(n['id'])
+
+if tree_nodes:
+    log(f'injecting motivation tree ({len(facet_ids)} facets)')
+    print()
+    print('--- BDD: This code exists because ---')
+    def render(nid, indent=0):
+        tn = tree_nodes[nid]
+        n = tn['node']
+        prefix = '  ' * indent
+        t = n['type'][0].upper()
+        print(f'  {prefix}{n[\"id\"]} [{t}] {n[\"text\"]}')
+        for cid in sorted(tn['children']):
+            render(cid, indent + 1)
+    for rid in sorted(tree_roots):
+        render(rid)
+    print('---')
+else:
+    log('no chains built')
+" 2>>"$LOGFILE"

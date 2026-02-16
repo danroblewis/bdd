@@ -16,14 +16,13 @@ You are a senior engineer preparing work for another engineer. The implementatio
 
 - Read `progress.txt` for learnings from previous iterations.
 - Read `.claude/CLAUDE.md` for project details (stack, build commands, key paths).
-- Read `.claude/rules/methodology.md` to understand the process.
-- If setup expectations exist, also read `.claude/rules/setup.md`.
+- Read `bdd.json` for test configuration (test command, results format, coverage format).
 
 ## Step 2: Get Your Task
 
-Run `bdd next` to see the highest-priority unsatisfied expectation, its facets, and parent goal context.
+Call `bdd_next()` to see the highest-priority unsatisfied expectation, its facets, and parent goal context.
 
-If `bdd next` says "All expectations satisfied!", write only this to `plan.md`:
+If it returns "All expectations satisfied!", write only this to `plan.md`:
 ```
 COMPLETE
 ```
@@ -37,7 +36,7 @@ This is the most important step. Use ALL available tools to understand the probl
 - Read existing source files, directory structure, and patterns
 - Read existing tests to understand the testing approach
 - Check previous commits (`git log`, `git diff`) to understand the architecture
-- Run `bdd tree` to see the full catalog and what's already been done
+- Call `bdd_tree()` to see the full catalog and what's already been done
 - Look at Cargo.toml / package.json / etc. for existing dependencies
 
 **Research externally:**
@@ -64,14 +63,14 @@ Spend real effort here. The implementation agent will follow your plan literally
 
 Do all BDD catalog work NOW, before writing the plan. The implementation agent should not need to touch the catalog.
 
-- If the expectation has no facets, decompose it: `bdd add facet "..." --parent <exp-id>`
-- Link test identifiers to facets: `bdd link <facet-id> <test-identifier>`
+- If the expectation has no facets, decompose it: call `bdd_add("facet", "...", parent="<exp-id>")`
+- Link test identifiers to facets: call `bdd_link("<facet-id>", "<test-identifier>")`
   - Test identifiers use the project's native test framework (e.g., `tests/behavior.rs::test_name`, `tests/test_behavior.py::test_name`)
-- Verify with `bdd show <exp-id>` that all facets have linked tests
+- Call `bdd_tree()` to verify all facets have linked tests
 
 ## Step 5: Write the Plan
 
-Write a concrete implementation plan to `plan.md`. This plan should read like a technical task description — no BDD jargon, no `bdd` commands. The implementation agent just needs to know WHAT to build and HOW to test it.
+Write a concrete implementation plan to `plan.md`. This plan should read like a technical task description — no BDD jargon, no catalog tools. The implementation agent just needs to know WHAT to build and HOW to test it.
 
 ```markdown
 # Plan: <short description of what to build>
@@ -100,7 +99,7 @@ For each test:
 - What existing patterns to follow
 
 ## Verification
-- The exact command to run all tests with coverage
+- Run `bdd_test()` to verify all tests pass and facets are updated
 - What success looks like (which tests pass, what behavior is visible)
 
 ## Risks
@@ -110,10 +109,9 @@ For each test:
 
 ## Rules
 
-- Do all catalog work (bdd add, bdd link) yourself in Step 4. Do NOT include bdd commands in the plan.
+- Do all catalog work (bdd_add, bdd_link) yourself in Step 4. Do NOT include catalog tool calls in the plan.
 - Do NOT write any code to source files. Only write plan.md.
 - Do NOT modify any source files or test files.
-- Do NOT run bdd mark — that's the implementation agent's job after tests pass.
 - Be specific — file paths, function names, exact API calls, version numbers.
 - ONE expectation only.
 - It's fine to run build commands, test commands, or other read-only exploration during research.

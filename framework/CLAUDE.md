@@ -1,33 +1,22 @@
 # Project Instructions
 
-This project uses **Behavior Test Curation** (Emergent Alignment) as its development methodology.
+This project uses **Behavior Test Curation** (Emergent Alignment) as its development methodology. The catalog (`catalog.json`) is the single source of truth for stakeholder intent.
 
 ## Methodology
 
-Read @rules/methodology.md for the full approach. The short version:
+You have BDD catalog tools available via MCP — use `/bdd` to learn the full methodology.
 
-- There is no spec document. The **catalog** (`catalog.json`) and the behavior test suite are the only sources of truth.
-- The catalog contains **goals** (broad stakeholder intent), **expectations** (specific wants), and **facets** (testable pieces).
-- When you write or modify code, check which expectations and facets are relevant.
-- After modifying code, run behavior tests and update facet statuses with `bdd mark`.
-- When you see untested facets related to your work, write behavior tests and link them with `bdd link`.
-- When an expectation is removed by a human, suggest removing the corresponding tests.
+The short version:
+- The catalog contains **goals** (broad intent), **expectations** (specific wants), and **facets** (testable pieces).
+- Call `bdd_motivation` when reading code to understand WHY it exists.
+- Call `bdd_next` to find what to work on next.
+- **ALWAYS use `bdd_test` to run tests.** Never run the test command from bdd.json directly. `bdd_test` runs the tests AND updates facet statuses and the motivation index. Running tests any other way leaves the catalog stale.
+- Every code change should trace to a catalog entry.
+- Write behavior tests (full program, user perspective), not unit tests.
 
-## BDD Catalog Commands
+## Self-Improvement
 
-```bash
-bdd status                              # Summary: goals, expectations, facets, coverage %
-bdd next                                # Next unsatisfied expectation to work on
-bdd show <id>                           # Detail of a node + children + parent chain
-bdd tree                                # Hierarchical view of entire catalog
-bdd add <type> "text" [--parent <id>]   # Add goal/expectation/facet
-bdd mark <facet-id> <status>            # Update facet: passing/failing/untested
-bdd link <facet-id> <test-path>         # Associate facet with its test
-bdd remove <id>                         # Remove a node
-bdd edit <id> "new text"                # Edit node text
-```
-
-Add `--json` to any command for machine-readable output.
+Build tools that help you work. If you notice a recurring need — introspection, automation, data access — create an MCP tool for it. The `bdd_server.py` pattern (FastMCP + project-local server) works for any project-specific tooling.
 
 ## Project Details
 
@@ -40,22 +29,10 @@ Add `--json` to any command for machine-readable output.
 # build command here
 ```
 
-**Test (with per-test coverage):**
+**Test:**
 ```bash
-# test + coverage command here, e.g.:
-# pytest tests/ --cov=src --cov-context=test --cov-report=json:coverage.json && bdd coverage --file coverage.json
-```
-
-**Introspect:**
-```bash
-# introspection command here (if available)
+# configured via bdd.json, run with bdd_test MCP tool
 ```
 
 **Key Paths:**
 - (list important source directories and files)
-
-## Working Style
-
-- **Act then review**: When the human describes what they want, add expectations to the catalog immediately. The human will prune what doesn't fit.
-- **Always motivate changes**: Every code change should trace back to a catalog entry.
-- **Test from the user's perspective**: Behavior tests should validate what the user sees and experiences, not internal implementation details.

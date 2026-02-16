@@ -1,7 +1,7 @@
 #!/bin/bash
 # test_run.sh — E2E test of the BDD system.
-# Creates a fresh project, seeds expectations, runs the implementation loop,
-# and verifies expectations get satisfied.
+# Tests the MCP server's core logic by importing as a Python module,
+# the bdd CLI, setup command, and index building.
 
 set -e
 
@@ -120,7 +120,7 @@ assert "e-001 satisfied" "$BDD --json show e-001 | python3 -c \"import sys,json;
 assert "e-002 unsatisfied" "$BDD --json show e-002 | python3 -c \"import sys,json; print(json.load(sys.stdin)['status'])\"" "untested"
 assert "1 satisfied" "$BDD --json status | python3 -c \"import sys,json; print(json.load(sys.stdin)['satisfied'])\"" "1"
 
-# Link tests (native test identifiers, not shell scripts)
+# Link tests
 $BDD link f-001 "tests/test_behavior.py::test_add"
 assert "test linked" "$BDD --json show f-001 | python3 -c \"import sys,json; print(json.load(sys.stdin)['node']['test'])\"" "tests/test_behavior.py::test_add"
 
@@ -163,6 +163,7 @@ assert "suggest skill exists" "test -f .claude/skills/suggest/SKILL.md && echo y
 assert "curate skill exists" "test -f .claude/skills/curate/SKILL.md && echo yes" "yes"
 assert "status skill exists" "test -f .claude/skills/status/SKILL.md && echo yes" "yes"
 assert "bootstrap skill exists" "test -f .claude/skills/bootstrap/SKILL.md && echo yes" "yes"
+assert "bdd skill exists" "test -f .claude/skills/bdd/SKILL.md && echo yes" "yes"
 assert "inject hook exists" "test -f .claude/hooks/inject-context.sh && echo yes" "yes"
 
 # Check settings.json is valid JSON
@@ -176,64 +177,259 @@ echo "Phase 4: JSON Output Mode"
 assert_exit "status --json valid" "$BDD --json status | python3 -c 'import sys,json; json.load(sys.stdin)'" "0"
 assert_exit "tree --json valid" "$BDD --json tree | python3 -c 'import sys,json; json.load(sys.stdin)'" "0"
 
-# --- Phase 5: Coverage Map ---
-echo "Phase 5: Coverage Map"
+echo ""
 
-# Link remaining facets to test identifiers for coverage mapping
-$BDD link f-003 "tests/test_behavior.py::test_subtraction"
+# --- Phase 5: MCP Server Core Logic ---
+echo "Phase 5: MCP Server Core Logic"
 
-# Create a coverage.py JSON file with per-test contexts
-cat > "$TEST_DIR/coverage.json" << 'COVEOF'
+# Test server functions by importing as Python module
+MCP_TEST_DIR=$(mktemp -d)
+cd "$MCP_TEST_DIR"
+git init -q .
+
+python3 -c "
+import sys, json, os
+sys.path.insert(0, '$BDD_DIR')
+from bdd_server import *
+
+root = '$MCP_TEST_DIR'
+
+# Test catalog operations
+save_catalog({'version': 1, 'nodes': []}, root)
+cat = load_catalog(root)
+assert cat is not None, 'catalog loaded'
+assert cat['version'] == 1, 'version correct'
+
+# Test node operations
+nodes = cat['nodes']
+nid = next_id(nodes, 'g')
+assert nid == 'g-001', f'next_id wrong: {nid}'
+
+# Add nodes manually
+nodes.append({'id': 'g-001', 'type': 'goal', 'text': 'Test goal', 'parent': None, 'priority': 1, 'labels': []})
+nodes.append({'id': 'e-001', 'type': 'expectation', 'text': 'Test expectation', 'parent': 'g-001', 'priority': 1, 'labels': []})
+nodes.append({'id': 'f-001', 'type': 'facet', 'text': 'Test facet 1', 'parent': 'e-001', 'test': 'tests/test_calc.py::test_add', 'status': 'untested'})
+nodes.append({'id': 'f-002', 'type': 'facet', 'text': 'Test facet 2', 'parent': 'e-001', 'test': 'tests/test_calc.py::test_sub', 'status': 'untested'})
+save_catalog(cat, root)
+
+# Test get_node, get_children, compute_status
+assert get_node(nodes, 'g-001') is not None
+assert len(get_children(nodes, 'e-001')) == 2
+assert compute_status(nodes, get_node(nodes, 'e-001')) == 'untested'
+
+# Test ancestor chain
+chain = get_ancestor_chain(nodes, 'f-001')
+assert len(chain) == 3, f'chain length: {len(chain)}'
+assert chain[0]['id'] == 'g-001'
+assert chain[2]['id'] == 'f-001'
+
+# Test status computation
+nodes[2]['status'] = 'passing'
+nodes[3]['status'] = 'passing'
+save_catalog(cat, root)
+assert compute_status(nodes, get_node(nodes, 'e-001')) == 'passing'
+
+# Test index operations
+idx = load_index(root)
+assert idx == {'forward': {}, 'reverse': {}, 'test_results': {}, 'facet_status': {}}
+save_index(idx, root)
+assert os.path.exists(os.path.join(root, '.bdd', 'index.json'))
+
+print('All server core logic tests passed')
+"
+
+assert_exit "server core logic" "python3 -c \"
+import sys; sys.path.insert(0, '$BDD_DIR')
+from bdd_server import *
+root = '$MCP_TEST_DIR'
+cat = load_catalog(root)
+assert cat is not None
+\"" "0"
+
+echo ""
+
+# --- Phase 6: Index Building ---
+echo "Phase 6: Index Building"
+
+cd "$MCP_TEST_DIR"
+
+# Reset catalog
+python3 -c "
+import sys, json, os
+sys.path.insert(0, '$BDD_DIR')
+from bdd_server import *
+
+root = '$MCP_TEST_DIR'
+cat = {'version': 1, 'nodes': [
+    {'id': 'g-001', 'type': 'goal', 'text': 'Calculator works', 'parent': None, 'priority': 1, 'labels': []},
+    {'id': 'e-001', 'type': 'expectation', 'text': 'Addition works', 'parent': 'g-001', 'priority': 1, 'labels': []},
+    {'id': 'f-001', 'type': 'facet', 'text': '2+3=5', 'parent': 'e-001', 'test': 'tests/test_calc.py::test_add', 'status': 'untested'},
+    {'id': 'f-002', 'type': 'facet', 'text': '0+0=0', 'parent': 'e-001', 'test': 'tests/test_calc.py::test_add_zeros', 'status': 'untested'},
+    {'id': 'e-002', 'type': 'expectation', 'text': 'Display works', 'parent': 'g-001', 'priority': 2, 'labels': []},
+    {'id': 'f-003', 'type': 'facet', 'text': 'display shows result', 'parent': 'e-002', 'test': None, 'status': 'untested'},
+]}
+save_catalog(cat, root)
+"
+
+# Create bdd.json
+cat > "$MCP_TEST_DIR/bdd.json" << 'BDDEOF'
+{
+  "test_command": "true",
+  "results_format": "junit",
+  "results_file": "results.xml",
+  "coverage_format": "coverage-json",
+  "coverage_file": "coverage.json"
+}
+BDDEOF
+
+# Create JUnit XML results
+cat > "$MCP_TEST_DIR/results.xml" << 'JUNITEOF'
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="tests" tests="2" errors="0" failures="0">
+    <testcase classname="tests/test_calc.py" name="test_add" time="0.01"/>
+    <testcase classname="tests/test_calc.py" name="test_add_zeros" time="0.01"/>
+  </testsuite>
+</testsuites>
+JUNITEOF
+
+# Create coverage.json with per-test contexts
+cat > "$MCP_TEST_DIR/coverage.json" << 'COVEOF'
 {
   "files": {
-    "src/calculator.py": {
+    "src/calc.py": {
       "contexts": {
-        "tests/test_behavior.py::test_add": [1, 2, 3, 10, 11],
-        "tests/test_behavior.py::test_subtraction": [1, 2, 3, 20, 21]
+        "tests/test_calc.py::test_add": [1, 2, 3, 10, 11],
+        "tests/test_calc.py::test_add_zeros": [1, 2, 4]
       }
     },
     "src/display.py": {
       "contexts": {
-        "tests/test_behavior.py::test_add": [5, 6, 7]
+        "tests/test_calc.py::test_add": [5, 6, 7]
       }
     }
   }
 }
 COVEOF
 
-# Run bdd coverage
-$BDD coverage --file "$TEST_DIR/coverage.json" --format coverage-json
-assert "coverage_map.json exists" "test -f coverage_map.json && echo yes" "yes"
-assert_exit "coverage_map.json is valid JSON" "python3 -c \"import json; json.load(open('coverage_map.json'))\"" "0"
+# Build index and verify
+python3 -c "
+import sys, json, os
+sys.path.insert(0, '$BDD_DIR')
+from bdd_server import *
 
-# Verify schema: top-level is a dict
-assert "coverage map is a dict" "python3 -c \"import json; d=json.load(open('coverage_map.json')); print(type(d).__name__)\"" "dict"
+root = '$MCP_TEST_DIR'
+result = build_index(root)
+assert result is not None, 'build_index returned None'
+index, updated = result
 
-# Verify line-level data: lines are dicts of line->facets
-assert "line-level data exists" "python3 -c \"import json; d=json.load(open('coverage_map.json')); print(type(d['src/calculator.py']).__name__)\"" "dict"
+# Verify test results parsed
+assert len(index['test_results']) == 2, f'Expected 2 test results, got {len(index[\"test_results\"])}'
+assert index['test_results']['tests/test_calc.py::test_add'] == 'passed'
+assert index['test_results']['tests/test_calc.py::test_add_zeros'] == 'passed'
 
-# Verify per-test mapping: line 10 only covered by test_add -> f-001, line 20 only by test_subtraction -> f-003
-assert "line 10 maps to f-001" "python3 -c \"import json; d=json.load(open('coverage_map.json')); print(d['src/calculator.py']['10'])\"" "['f-001']"
-assert "line 20 maps to f-003" "python3 -c \"import json; d=json.load(open('coverage_map.json')); print(d['src/calculator.py']['20'])\"" "['f-003']"
+# Verify facet statuses updated
+cat = load_catalog(root)
+nodes = cat['nodes']
+f001 = get_node(nodes, 'f-001')
+f002 = get_node(nodes, 'f-002')
+f003 = get_node(nodes, 'f-003')
+assert f001['status'] == 'passing', f'f-001 status: {f001[\"status\"]}'
+assert f002['status'] == 'passing', f'f-002 status: {f002[\"status\"]}'
+assert f003['status'] == 'untested', f'f-003 status: {f003[\"status\"]}'
 
-# Verify shared lines map to both facets
-assert "shared line 1 maps to both" "python3 -c \"import json; d=json.load(open('coverage_map.json')); print(d['src/calculator.py']['1'])\"" "['f-001', 'f-003']"
+# Verify forward map
+fwd = index['forward']
+assert 'src/calc.py' in fwd, f'src/calc.py not in forward: {list(fwd.keys())}'
+assert '10' in fwd['src/calc.py'], f'line 10 not in forward map'
+assert fwd['src/calc.py']['10'] == ['f-001'], f'line 10 maps to: {fwd[\"src/calc.py\"][\"10\"]}'
+assert '4' in fwd['src/calc.py'], f'line 4 not in forward map'
+assert fwd['src/calc.py']['4'] == ['f-002'], f'line 4 maps to: {fwd[\"src/calc.py\"][\"4\"]}'
+# Shared lines
+assert '1' in fwd['src/calc.py']
+assert sorted(fwd['src/calc.py']['1']) == ['f-001', 'f-002'], f'shared line 1: {fwd[\"src/calc.py\"][\"1\"]}'
 
-# Verify bdd related works with new schema
-assert_contains "related finds calculator" "$BDD related src/calculator.py" "calculator"
-assert_contains "related shows facet chain" "$BDD related src/calculator.py" "f-001"
+# Verify reverse map
+rev = index['reverse']
+assert 'f-001' in rev
+assert 'src/calc.py' in rev['f-001']
+assert 10 in rev['f-001']['src/calc.py']
+assert 'src/display.py' in rev['f-001']
+assert 5 in rev['f-001']['src/display.py']
 
-# Verify --lines filtering
-assert_contains "related --lines 10 11 finds f-001" "$BDD --json related src/calculator.py --lines 10 11 | python3 -c \"import sys,json; r=json.load(sys.stdin)['related']; print(r[0]['facet_ids'] if r else [])\"" "f-001"
+# Verify index file was saved
+assert os.path.exists(os.path.join(root, '.bdd', 'index.json'))
 
-# Verify --lines filtering excludes out-of-range facets
-assert "related --lines 10 11 excludes f-003" "$BDD --json related src/calculator.py --lines 10 11 | python3 -c \"import sys,json; r=json.load(sys.stdin)['related']; fids=r[0]['facet_ids'] if r else []; print('f-003' not in fids)\"" "True"
+print('All index building tests passed')
+"
 
-# Verify --lines 20 21 finds only f-003
-assert_contains "related --lines 20 21 finds f-003" "$BDD --json related src/calculator.py --lines 20 21 | python3 -c \"import sys,json; r=json.load(sys.stdin)['related']; print(r[0]['facet_ids'] if r else [])\"" "f-003"
+assert_exit "index building" "python3 -c \"
+import sys; sys.path.insert(0, '$BDD_DIR')
+from bdd_server import *
+root = '$MCP_TEST_DIR'
+result = build_index(root)
+assert result is not None
+\"" "0"
 
-# --- Phase 6: Setup Command ---
-echo "Phase 6: Setup Command"
+# Test bdd_motivation tree output
+python3 -c "
+import sys, os
+sys.path.insert(0, '$BDD_DIR')
+import bdd_server
+bdd_server.PROJECT_ROOT = '$MCP_TEST_DIR'
+
+result = bdd_server.bdd_motivation('src/calc.py')
+print('Motivation output:')
+print(result)
+
+# Should be tree format, not flat chains
+assert '--- This code exists because ---' in result, 'missing header'
+assert '---' in result, 'missing footer'
+
+# g-001 should appear exactly once (deduplicated)
+count = result.count('g-001')
+assert count == 1, f'g-001 appears {count} times (should be 1 — deduplicated)'
+
+# Both facets should appear
+assert 'f-001' in result, 'missing f-001'
+assert 'f-002' in result, 'missing f-002'
+
+# e-001 should appear once (shared parent)
+e_count = result.count('e-001')
+assert e_count == 1, f'e-001 appears {e_count} times (should be 1)'
+
+# Type labels should be present
+assert '[G]' in result, 'missing [G] type label'
+assert '[E]' in result, 'missing [E] type label'
+assert '[F]' in result, 'missing [F] type label'
+
+# Indentation: facets should be indented more than their parent
+lines = result.split('\n')
+for line in lines:
+    if 'f-001' in line:
+        f_indent = len(line) - len(line.lstrip())
+    if 'e-001' in line:
+        e_indent = len(line) - len(line.lstrip())
+    if 'g-001' in line:
+        g_indent = len(line) - len(line.lstrip())
+assert f_indent > e_indent, f'facet indent ({f_indent}) not > expectation indent ({e_indent})'
+assert e_indent > g_indent, f'expectation indent ({e_indent}) not > goal indent ({g_indent})'
+
+print('All motivation tree tests passed')
+"
+
+assert_exit "motivation tree output" "python3 -c \"
+import sys; sys.path.insert(0, '$BDD_DIR')
+import bdd_server
+bdd_server.PROJECT_ROOT = '$MCP_TEST_DIR'
+result = bdd_server.bdd_motivation('src/calc.py')
+assert '--- This code exists because ---' in result
+\"" "0"
+
+echo ""
+
+# --- Phase 7: Setup Command ---
+echo "Phase 7: Setup Command"
 
 SETUP_DIR=$(mktemp -d)
 
@@ -242,6 +438,15 @@ $BDD setup "$SETUP_DIR" >/dev/null 2>&1
 assert "setup creates .claude" "test -d $SETUP_DIR/.claude && echo yes" "yes"
 assert "setup creates catalog" "test -f $SETUP_DIR/catalog.json && echo yes" "yes"
 assert "setup creates setup.md" "test -f $SETUP_DIR/.claude/rules/setup.md && echo yes" "yes"
+assert "setup creates .mcp.json" "test -f $SETUP_DIR/.mcp.json && echo yes" "yes"
+assert "setup creates .bdd dir" "test -d $SETUP_DIR/.bdd && echo yes" "yes"
+
+# Verify .mcp.json points to bdd_server.py
+assert_contains ".mcp.json has bdd_server" "cat $SETUP_DIR/.mcp.json" "bdd_server.py"
+assert_contains ".mcp.json has bdd-catalog" "cat $SETUP_DIR/.mcp.json" "bdd-catalog"
+
+# Verify .gitignore has .bdd/
+assert_contains ".gitignore has .bdd/" "cat $SETUP_DIR/.gitignore" ".bdd/"
 
 # Setup goal has priority 0
 assert "setup goal priority 0" "cd $SETUP_DIR && $BDD --json show g-001 | python3 -c \"import sys,json; print(json.load(sys.stdin)['node']['priority'])\"" "0"
@@ -263,6 +468,186 @@ $BDD setup "$SETUP_DIR2" --force >/dev/null 2>&1
 assert "no duplicate setup goals" "cd $SETUP_DIR2 && $BDD --json status | python3 -c \"import sys,json; print(json.load(sys.stdin)['goals'])\"" "2"
 
 rm -rf "$SETUP_DIR" "$SETUP_DIR2"
+cd "$TEST_DIR"
+
+echo ""
+
+# --- Phase 8: bdd test (CLI) ---
+echo "Phase 8: bdd test Command"
+
+BDD_TEST_DIR=$(mktemp -d)
+cd "$BDD_TEST_DIR"
+git init -q .
+
+# Initialize catalog and add nodes
+$BDD init >/dev/null
+$BDD add goal "Calculator works" --priority 1 >/dev/null
+$BDD add expectation "Addition works" --parent g-001 --priority 1 >/dev/null
+$BDD add expectation "Display works" --parent g-001 --priority 2 >/dev/null
+$BDD add facet "2+3=5" --parent e-001 >/dev/null
+$BDD add facet "0+0=0" --parent e-001 >/dev/null
+$BDD add facet "display shows result" --parent e-002 >/dev/null
+
+# Link test identifiers
+$BDD link f-001 "tests/test_calc.py::test_add"
+$BDD link f-002 "tests/test_calc.py::test_add_zeros"
+# f-003 intentionally unlinked
+
+# Create bdd.json (JUnit format)
+cat > "$BDD_TEST_DIR/bdd.json" << 'BDDEOF'
+{
+  "test_command": "true",
+  "results_format": "junit",
+  "results_file": "results.xml",
+  "coverage_format": "coverage-json",
+  "coverage_file": "coverage.json"
+}
+BDDEOF
+
+# Create passing JUnit XML results
+cat > "$BDD_TEST_DIR/results.xml" << 'JUNITEOF'
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="tests" tests="2" errors="0" failures="0">
+    <testcase classname="tests/test_calc.py" name="test_add" time="0.01"/>
+    <testcase classname="tests/test_calc.py" name="test_add_zeros" time="0.01"/>
+  </testsuite>
+</testsuites>
+JUNITEOF
+
+# Create coverage.json
+cat > "$BDD_TEST_DIR/coverage.json" << 'COVEOF'
+{
+  "files": {
+    "src/calc.py": {
+      "contexts": {
+        "tests/test_calc.py::test_add": [1, 2, 3],
+        "tests/test_calc.py::test_add_zeros": [1, 2, 4]
+      }
+    }
+  }
+}
+COVEOF
+
+# Run bdd test — should mark f-001 and f-002 passing
+$BDD test >/dev/null 2>&1 || true
+assert "f-001 marked passing" "cd $BDD_TEST_DIR && $BDD --json show f-001 | python3 -c \"import sys,json; print(json.load(sys.stdin)['node']['status'])\"" "passing"
+assert "f-002 marked passing" "cd $BDD_TEST_DIR && $BDD --json show f-002 | python3 -c \"import sys,json; print(json.load(sys.stdin)['node']['status'])\"" "passing"
+assert "f-003 stays untested" "cd $BDD_TEST_DIR && $BDD --json show f-003 | python3 -c \"import sys,json; print(json.load(sys.stdin)['node']['status'])\"" "untested"
+assert "coverage_map.json created" "test -f $BDD_TEST_DIR/coverage_map.json && echo yes" "yes"
+
+# bdd test exits 1 because not all expectations are satisfied (f-003 untested)
+assert_exit "bdd test exits 1 (not all satisfied)" "cd $BDD_TEST_DIR && $BDD test" "1"
+
+# Swap in a failing result for f-001
+cat > "$BDD_TEST_DIR/results.xml" << 'JUNITEOF'
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="tests" tests="2" errors="0" failures="1">
+    <testcase classname="tests/test_calc.py" name="test_add" time="0.01">
+      <failure message="assert 2+3==6">AssertionError</failure>
+    </testcase>
+    <testcase classname="tests/test_calc.py" name="test_add_zeros" time="0.01"/>
+  </testsuite>
+</testsuites>
+JUNITEOF
+
+$BDD test >/dev/null 2>&1 || true
+assert "f-001 marked failing" "cd $BDD_TEST_DIR && $BDD --json show f-001 | python3 -c \"import sys,json; print(json.load(sys.stdin)['node']['status'])\"" "failing"
+assert "f-002 still passing" "cd $BDD_TEST_DIR && $BDD --json show f-002 | python3 -c \"import sys,json; print(json.load(sys.stdin)['node']['status'])\"" "passing"
+
+# Test --json output
+JOUT=$(cd $BDD_TEST_DIR && $BDD --json test 2>/dev/null || true)
+assert "json output has results_parsed" "echo '$JOUT' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d['results_parsed'])\"" "2"
+assert "json output has all_satisfied" "echo '$JOUT' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d['all_satisfied'])\"" "False"
+
+# Test all expectations satisfied -> exit 0
+cd "$BDD_TEST_DIR"
+cat > "$BDD_TEST_DIR/results.xml" << 'JUNITEOF'
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="tests" tests="3" errors="0" failures="0">
+    <testcase classname="tests/test_calc.py" name="test_add" time="0.01"/>
+    <testcase classname="tests/test_calc.py" name="test_add_zeros" time="0.01"/>
+    <testcase classname="tests/test_display.py" name="test_display" time="0.01"/>
+  </testsuite>
+</testsuites>
+JUNITEOF
+
+$BDD link f-003 "tests/test_display.py::test_display"
+assert_exit "bdd test exits 0 (all satisfied)" "cd $BDD_TEST_DIR && $BDD test" "0"
+
+rm -rf "$BDD_TEST_DIR"
+cd "$TEST_DIR"
+
+echo ""
+
+# --- Phase 9: --run-tests mode ---
+echo "Phase 9: --run-tests Mode"
+
+RT_DIR=$(mktemp -d)
+cd "$RT_DIR"
+git init -q .
+
+# Set up a simple project
+python3 -c "
+import sys, json, os
+sys.path.insert(0, '$BDD_DIR')
+from bdd_server import save_catalog
+
+save_catalog({'version': 1, 'nodes': [
+    {'id': 'g-001', 'type': 'goal', 'text': 'Works', 'parent': None, 'priority': 1, 'labels': []},
+    {'id': 'e-001', 'type': 'expectation', 'text': 'Does thing', 'parent': 'g-001', 'priority': 1, 'labels': []},
+    {'id': 'f-001', 'type': 'facet', 'text': 'thing works', 'parent': 'e-001', 'test': 'tests/test.py::test_thing', 'status': 'untested'},
+]}, '$RT_DIR')
+"
+
+cat > "$RT_DIR/bdd.json" << 'EOF'
+{
+  "test_command": "true",
+  "results_format": "junit",
+  "results_file": "results.xml",
+  "coverage_format": "coverage-json",
+  "coverage_file": "coverage.json"
+}
+EOF
+
+cat > "$RT_DIR/results.xml" << 'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="tests" tests="1">
+    <testcase classname="tests/test.py" name="test_thing" time="0.01"/>
+  </testsuite>
+</testsuites>
+EOF
+
+cat > "$RT_DIR/coverage.json" << 'EOF'
+{
+  "files": {
+    "src/main.py": {
+      "contexts": {
+        "tests/test.py::test_thing": [1, 2, 3]
+      }
+    }
+  }
+}
+EOF
+
+# --run-tests should exit 0 (all satisfied)
+assert_exit "run-tests exits 0" "python3 $BDD_DIR/bdd_server.py --run-tests $RT_DIR" "0"
+
+# Verify index was built
+assert ".bdd/index.json created" "test -f $RT_DIR/.bdd/index.json && echo yes" "yes"
+
+# Verify facet was updated
+assert "facet updated to passing" "python3 -c \"
+import sys, json; sys.path.insert(0, '$BDD_DIR')
+from bdd_server import load_catalog, get_node
+cat = load_catalog('$RT_DIR')
+print(get_node(cat['nodes'], 'f-001')['status'])
+\"" "passing"
+
+rm -rf "$RT_DIR"
 cd "$TEST_DIR"
 
 echo ""

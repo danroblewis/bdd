@@ -2,16 +2,16 @@
 name: curate
 description: Use at the start of a session or after completing a feature to audit alignment between tests and catalog. Use proactively.
 user-invocable: true
-allowed-tools: Bash, Read, Grep, Glob
+allowed-tools: Read, Grep, Glob
 ---
 
 Audit the alignment between behavior tests and the BDD catalog.
 
 ## Steps
 
-1. Run `bdd tree` to see the full catalog with statuses.
+1. Call `bdd_tree()` to see the full catalog with statuses.
 
-2. Run `bdd status` to get summary numbers.
+2. Call `bdd_status()` to get summary numbers.
 
 3. Find behavior test files in the project's test directory.
 

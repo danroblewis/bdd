@@ -1,8 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(bdd *)",
-      "Bash(bdd)",
       "Read",
       "Glob",
       "Grep"
@@ -13,15 +11,6 @@
   },
   "hooks": {
     "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/inject-context.sh\" 2>/dev/null || true"
-          }
-        ]
-      },
       {
         "matcher": "Read",
         "hooks": [
