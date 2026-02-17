@@ -1,14 +1,16 @@
 #!/bin/bash
-set -euo pipefail
+set -uo pipefail
 
 # bench/run-all.sh — Run all task × treatment combinations
-# Usage: ./bench/run-all.sh [--repeat N] [--task TASK] [--treatment TREATMENT] [--budget USD]
+# Usage: ./bench/run-all.sh [--repeat N] [--task TASK] [--treatment TREATMENT] [--budget USD] [--jobs N]
 
 BENCH_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPEAT=1
 FILTER_TASK=""
 FILTER_TREATMENT=""
-BUDGET="0.50"
+BUDGET="1.00"
+MAX_JOBS=3
+LOG_DIR="$BENCH_DIR/results"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,6 +18,7 @@ while [[ $# -gt 0 ]]; do
     --task) FILTER_TASK="$2"; shift 2 ;;
     --treatment) FILTER_TREATMENT="$2"; shift 2 ;;
     --budget) BUDGET="$2"; shift 2 ;;
+    --jobs) MAX_JOBS="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -46,38 +49,51 @@ echo "Tasks:      ${TASKS[*]}"
 echo "Treatments: ${TREATMENTS[*]}"
 echo "Repeat:     $REPEAT"
 echo "Budget:     \$$BUDGET per run"
-echo "Total runs: $TOTAL_RUNS"
+echo "Total runs: $TOTAL_RUNS ($MAX_JOBS concurrent)"
 echo ""
 
-RUN_NUM=0
+mkdir -p "$LOG_DIR"
 PASSED=0
 FAILED=0
+DONE=0
 
 for trial in $(seq 1 "$REPEAT"); do
   for task in "${TASKS[@]}"; do
     for treatment in "${TREATMENTS[@]}"; do
-      RUN_NUM=$((RUN_NUM + 1))
-      echo "────────────────────────────────────────"
-      echo "[$RUN_NUM/$TOTAL_RUNS] Task: $task | Treatment: $treatment | Trial: $trial"
-      echo "────────────────────────────────────────"
-
-      set +e
-      "$BENCH_DIR/run.sh" --task "$task" --treatment "$treatment" --budget "$BUDGET"
-      EXIT_CODE=$?
-      set -e
-
-      if [[ $EXIT_CODE -eq 0 ]]; then
-        PASSED=$((PASSED + 1))
-      else
-        FAILED=$((FAILED + 1))
-        echo "WARNING: Run failed with exit code $EXIT_CODE"
-      fi
-      echo ""
+      # Wait if we already have MAX_JOBS running
+      while [ "$(jobs -r | wc -l)" -ge "$MAX_JOBS" ]; do
+        sleep 10
+      done
+      LOG_FILE="$LOG_DIR/run-${task}-${treatment}.log"
+      echo "[$(date +%H:%M:%S)] Starting: $task × $treatment (trial $trial)"
+      "$BENCH_DIR/run.sh" --task "$task" --treatment "$treatment" --budget "$BUDGET" \
+        > "$LOG_FILE" 2>&1 &
     done
   done
 done
 
+echo ""
+echo "All $TOTAL_RUNS jobs launched. Waiting for remaining to finish..."
+wait
+
+# Count results
+for trial in $(seq 1 "$REPEAT"); do
+  for task in "${TASKS[@]}"; do
+    for treatment in "${TREATMENTS[@]}"; do
+      DONE=$((DONE + 1))
+      LOG_FILE="$LOG_DIR/run-${task}-${treatment}.log"
+      if grep -q '"acceptance_pass": true' "$LOG_FILE" 2>/dev/null; then
+        PASSED=$((PASSED + 1))
+      else
+        FAILED=$((FAILED + 1))
+      fi
+    done
+  done
+done
+
+echo ""
 echo "════════════════════════════════════════"
-echo "All runs complete: $PASSED passed, $FAILED failed out of $TOTAL_RUNS"
+echo "Batch complete at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "Acceptance passed: $PASSED / $TOTAL_RUNS"
 echo ""
 echo "Run analysis with: python $BENCH_DIR/analyze.py"
