@@ -234,12 +234,16 @@ if [[ -f "$RESULT_DIR/agent-output.jsonl" ]]; then
   # Extract all metrics from stream-json in one python pass
   eval "$(python3 << PYEOF
 import json
+from collections import defaultdict
 
 input_tokens = 0
 output_tokens = 0
 tool_calls = 0
 api_turns = 0
 budget_used = 0.0
+tool_breakdown = defaultdict(int)
+tool_errors = 0
+tool_error_types = defaultdict(int)
 
 with open("$RESULT_DIR/agent-output.jsonl") as f:
     for line in f:
@@ -263,14 +267,45 @@ with open("$RESULT_DIR/agent-output.jsonl") as f:
             for block in msg.get("content", []):
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     tool_calls += 1
+                    name = block.get("name", "unknown")
+                    tool_breakdown[name] += 1
+        elif t == "user":
+            msg = d.get("message", {})
+            for block in msg.get("content", []):
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    if block.get("is_error"):
+                        tool_errors += 1
+                        content = block.get("content", "")
+                        if isinstance(content, list):
+                            content = " ".join(
+                                b.get("text", "") for b in content
+                                if isinstance(b, dict)
+                            )
+                        prefix = str(content)[:60].strip()
+                        if prefix:
+                            tool_error_types[prefix] += 1
+
+mcp_tool_calls = sum(v for k, v in tool_breakdown.items() if k.startswith("mcp__bdd__"))
+bdd_test_calls = tool_breakdown.get("mcp__bdd__bdd_test", 0)
+bdd_motivation_calls = tool_breakdown.get("mcp__bdd__bdd_motivation", 0)
+bdd_locate_calls = tool_breakdown.get("mcp__bdd__bdd_locate", 0)
+bdd_status_calls = tool_breakdown.get("mcp__bdd__bdd_status", 0)
 
 print(f"TOKENS_INPUT={input_tokens}")
 print(f"TOKENS_OUTPUT={output_tokens}")
 print(f"TOOL_CALLS={tool_calls}")
 print(f"API_TURNS={api_turns}")
 print(f"BUDGET_USED={budget_used:.2f}")
+print(f"MCP_TOOL_CALLS={mcp_tool_calls}")
+print(f"BDD_TEST_CALLS={bdd_test_calls}")
+print(f"BDD_MOTIVATION_CALLS={bdd_motivation_calls}")
+print(f"BDD_LOCATE_CALLS={bdd_locate_calls}")
+print(f"BDD_STATUS_CALLS={bdd_status_calls}")
+print(f"TOOL_ERRORS={tool_errors}")
+print(f"TOOL_BREAKDOWN='{json.dumps(dict(tool_breakdown))}'")
+print(f"TOOL_ERROR_TYPES='{json.dumps(dict(tool_error_types))}'")
 PYEOF
-)" 2>/dev/null || eval "TOKENS_INPUT=0; TOKENS_OUTPUT=0; TOOL_CALLS=0; API_TURNS=0; BUDGET_USED=0.00"
+)" 2>/dev/null || eval "TOKENS_INPUT=0; TOKENS_OUTPUT=0; TOOL_CALLS=0; API_TURNS=0; BUDGET_USED=0.00; MCP_TOOL_CALLS=0; BDD_TEST_CALLS=0; BDD_MOTIVATION_CALLS=0; BDD_LOCATE_CALLS=0; BDD_STATUS_CALLS=0; TOOL_ERRORS=0; TOOL_BREAKDOWN='{}'; TOOL_ERROR_TYPES='{}';"
 fi
 
 TOKENS_TOTAL=$((TOKENS_INPUT + TOKENS_OUTPUT))
@@ -341,6 +376,82 @@ JUNITEOF
 
 REGRESSION_DELTA=$((REGRESSION_TOTAL - REGRESSION_BASELINE))
 
+# --- Step 7c: Parse hook lifecycle and edit logs ---
+HOOK_BEGINS=0
+HOOK_ENDS=0
+HOOK_FAILURES=0
+HOOK_INJECTIONS=0
+HOOK_SKIPS=0
+HOOK_UNIQUE_FACETS=0
+EDIT_LOG_ENTRIES=0
+EDIT_LOG_UNIQUE_FACETS=0
+EDIT_LOG_UNIQUE_FILES=0
+
+eval "$(python3 << HOOKEOF
+import json, os, re
+
+hook_log = os.path.join("$WORKSPACE", ".bdd", "hook.log")
+edit_log_file = os.path.join("$WORKSPACE", ".bdd", "edit_log.json")
+
+# Parse hook.log BEGIN/END markers
+begins = 0
+ends = 0
+injections = 0
+skips = 0
+facet_ids = set()
+
+if os.path.isfile(hook_log):
+    with open(hook_log) as f:
+        for line in f:
+            if " BEGIN " in line:
+                begins += 1
+            elif " END " in line:
+                ends += 1
+                if "status=injected" in line:
+                    injections += 1
+                    # Extract facet count (informational, not unique IDs)
+                elif "status=skipped" in line:
+                    skips += 1
+            # Collect unique facet IDs from "found N facets: [...]" lines
+            m = re.search(r"found \d+ facets: \[([^\]]*)\]", line)
+            if m:
+                for fid in re.findall(r"'([^']+)'", m.group(1)):
+                    facet_ids.add(fid)
+
+failures = max(0, begins - ends)
+
+print(f"HOOK_BEGINS={begins}")
+print(f"HOOK_ENDS={ends}")
+print(f"HOOK_FAILURES={failures}")
+print(f"HOOK_INJECTIONS={injections}")
+print(f"HOOK_SKIPS={skips}")
+print(f"HOOK_UNIQUE_FACETS={len(facet_ids)}")
+
+# Parse edit_log.json
+entries = 0
+edit_facets = set()
+edit_files = set()
+
+if os.path.isfile(edit_log_file):
+    try:
+        with open(edit_log_file) as f:
+            edit_log = json.load(f)
+        entries = len(edit_log)
+        for e in edit_log:
+            for fid in e.get("facets", []):
+                edit_facets.add(fid)
+            fp = e.get("file", "")
+            if fp:
+                edit_files.add(fp)
+    except Exception:
+        pass
+
+print(f"EDIT_LOG_ENTRIES={entries}")
+print(f"EDIT_LOG_UNIQUE_FACETS={len(edit_facets)}")
+print(f"EDIT_LOG_UNIQUE_FILES={len(edit_files)}")
+HOOKEOF
+)" 2>/dev/null || true
+
 # --- Step 8: Write metrics.json ---
 cat > "$RESULT_DIR/metrics.json" << METRICS_EOF
 {
@@ -372,7 +483,24 @@ cat > "$RESULT_DIR/metrics.json" << METRICS_EOF
   "files_changed": $FILES_CHANGED,
   "lines_added": $LINES_ADDED,
   "lines_removed": $LINES_REMOVED,
-  "budget_used_usd": $BUDGET_USED
+  "budget_used_usd": $BUDGET_USED,
+  "mcp_tool_calls": $MCP_TOOL_CALLS,
+  "bdd_test_calls": $BDD_TEST_CALLS,
+  "bdd_motivation_calls": $BDD_MOTIVATION_CALLS,
+  "bdd_locate_calls": $BDD_LOCATE_CALLS,
+  "bdd_status_calls": $BDD_STATUS_CALLS,
+  "tool_errors": $TOOL_ERRORS,
+  "tool_error_types": $TOOL_ERROR_TYPES,
+  "hook_begins": $HOOK_BEGINS,
+  "hook_ends": $HOOK_ENDS,
+  "hook_failures": $HOOK_FAILURES,
+  "hook_injections": $HOOK_INJECTIONS,
+  "hook_skips": $HOOK_SKIPS,
+  "hook_unique_facets": $HOOK_UNIQUE_FACETS,
+  "edit_log_entries": $EDIT_LOG_ENTRIES,
+  "edit_log_unique_facets": $EDIT_LOG_UNIQUE_FACETS,
+  "edit_log_unique_files": $EDIT_LOG_UNIQUE_FILES,
+  "tool_breakdown": $TOOL_BREAKDOWN
 }
 METRICS_EOF
 
@@ -380,6 +508,14 @@ echo ""
 echo "=== Results ==="
 echo "Metrics: $RESULT_DIR/metrics.json"
 cat "$RESULT_DIR/metrics.json"
+
+# --- Step 8b: Preserve BDD artifacts ---
+if [[ -d "$WORKSPACE/.bdd" ]]; then
+  mkdir -p "$RESULT_DIR/bdd-artifacts"
+  for f in hook.log edit_log.json stop-blocks.log; do
+    [[ -f "$WORKSPACE/.bdd/$f" ]] && cp "$WORKSPACE/.bdd/$f" "$RESULT_DIR/bdd-artifacts/"
+  done
+fi
 
 # Cleanup workspace
 rm -rf "$WORKSPACE"

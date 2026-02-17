@@ -39,14 +39,18 @@ if not os.path.isfile(CATALOG_FILE):
 
 # Read hook input from stdin
 hook = json.load(sys.stdin)
-log(f"hook fired, tool: {hook.get('tool_name', '?')}")
-
-if hook.get("tool_name") != "Read":
-    sys.exit(0)
-
+tool_name = hook.get("tool_name", "?")
 ti = hook.get("tool_input", {})
 file_path = ti.get("file_path", "")
+
+log(f"BEGIN read-hook tool={tool_name} file={file_path}")
+
+if tool_name != "Read":
+    log(f"END read-hook status=skipped file={file_path} reason=wrong-tool:{tool_name}")
+    sys.exit(0)
+
 if not file_path:
+    log(f"END read-hook status=skipped file= reason=no-file-path")
     sys.exit(0)
 
 log(f"Read: {file_path}")
@@ -56,7 +60,7 @@ skip_patterns = ("test", "catalog.json", "index.json", ".md", ".toml", ".yaml",
                  ".yml", ".lock", ".json", ".cfg", ".ini", ".bdd/")
 for pat in skip_patterns:
     if pat in file_path:
-        log(f"skipped (pattern: {pat})")
+        log(f"END read-hook status=skipped file={file_path} reason=pattern:{pat}")
         sys.exit(0)
 
 # Load index and catalog
@@ -67,6 +71,7 @@ try:
         catalog = json.load(f)
 except Exception as e:
     log(f"load error: {e}")
+    log(f"END read-hook status=skipped file={file_path} reason=load-error")
     sys.exit(0)
 
 forward = index.get("forward", {})
@@ -78,6 +83,7 @@ rel_path = os.path.relpath(file_path, PROJECT_ROOT) if os.path.isabs(file_path) 
 matched = {f: lines for f, lines in forward.items() if rel_path in f or f in rel_path}
 if not matched:
     log(f"no match for {rel_path}")
+    log(f"END read-hook status=skipped file={file_path} reason=no-match")
     sys.exit(0)
 
 log(f"matched {len(matched)} files for {rel_path}")
@@ -100,6 +106,7 @@ for src_file, line_map in matched.items():
 
 if not facet_ids:
     log("no facets for matched lines")
+    log(f"END read-hook status=skipped file={file_path} reason=no-facets")
     sys.exit(0)
 
 log(f"found {len(facet_ids)} facets: {sorted(facet_ids)}")
@@ -126,6 +133,7 @@ for fid in sorted(facet_ids):
 
 if not tree_nodes:
     log("no chains built")
+    log(f"END read-hook status=skipped file={file_path} reason=no-chains")
     sys.exit(0)
 
 log(f"injecting motivation tree ({len(facet_ids)} facets)")
@@ -143,6 +151,8 @@ def render(nid, indent=0):
 for rid in sorted(tree_roots):
     render(rid)
 lines.append("---")
+
+log(f"END read-hook status=injected file={file_path} facets={len(facet_ids)}")
 
 print(json.dumps({
     "hookSpecificOutput": {

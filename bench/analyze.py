@@ -226,6 +226,141 @@ def print_integrity_table(results: list[dict]):
     md_table(headers, rows, aligns)
 
 
+def print_engagement_table(results: list[dict]):
+    """Print BDD engagement breakdown by treatment."""
+    if not results:
+        return
+
+    by_treatment = defaultdict(list)
+    for r in results:
+        by_treatment[r["treatment"]].append(r)
+
+    print()
+    print("### BDD Engagement by Treatment")
+    print()
+    headers = ["Treatment", "Runs", "MCP Calls", "bdd_test", "Hooks", "Injected", "Failed", "Uniq Facets", "Edits"]
+    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r"]
+    rows = []
+    for treatment in sorted(by_treatment.keys()):
+        runs = by_treatment[treatment]
+        n = len(runs)
+        avg_mcp = sum(r.get("mcp_tool_calls", 0) for r in runs) / n
+        avg_test = sum(r.get("bdd_test_calls", 0) for r in runs) / n
+        avg_hooks = sum(r.get("hook_begins", 0) for r in runs) / n
+        avg_inj = sum(r.get("hook_injections", 0) for r in runs) / n
+        avg_fail = sum(r.get("hook_failures", 0) for r in runs) / n
+        avg_facets = sum(r.get("hook_unique_facets", 0) for r in runs) / n
+        avg_edits = sum(r.get("edit_log_entries", 0) for r in runs) / n
+
+        rows.append([
+            treatment,
+            str(n),
+            f"{avg_mcp:.1f}",
+            f"{avg_test:.1f}",
+            f"{avg_hooks:.1f}",
+            f"{avg_inj:.1f}",
+            f"{avg_fail:.1f}",
+            f"{avg_facets:.1f}",
+            f"{avg_edits:.1f}",
+        ])
+    md_table(headers, rows, aligns)
+
+
+def print_reliability_table(results: list[dict]):
+    """Print tool and hook reliability by treatment."""
+    if not results:
+        return
+
+    by_treatment = defaultdict(list)
+    for r in results:
+        by_treatment[r["treatment"]].append(r)
+
+    print()
+    print("### Tool & Hook Reliability by Treatment")
+    print()
+    headers = ["Treatment", "Runs", "Tool Errs", "Hook Starts", "Hook Fails", "Fail%", "Top Error"]
+    aligns = ["l", "r", "r", "r", "r", "r", "l"]
+    rows = []
+    for treatment in sorted(by_treatment.keys()):
+        runs = by_treatment[treatment]
+        n = len(runs)
+        avg_errs = sum(r.get("tool_errors", 0) for r in runs) / n
+        avg_starts = sum(r.get("hook_begins", 0) for r in runs) / n
+        avg_fails = sum(r.get("hook_failures", 0) for r in runs) / n
+        total_starts = sum(r.get("hook_begins", 0) for r in runs)
+        total_fails = sum(r.get("hook_failures", 0) for r in runs)
+        fail_pct = f"{total_fails / total_starts * 100:.0f}%" if total_starts > 0 else "-"
+
+        # Find most common error type across runs
+        error_counts: dict[str, int] = defaultdict(int)
+        for r in runs:
+            for msg, cnt in r.get("tool_error_types", {}).items():
+                error_counts[msg] += cnt
+        top_error = max(error_counts, key=error_counts.get) if error_counts else "-"
+        if len(top_error) > 40:
+            top_error = top_error[:37] + "..."
+
+        rows.append([
+            treatment,
+            str(n),
+            f"{avg_errs:.1f}",
+            f"{avg_starts:.1f}",
+            f"{avg_fails:.1f}",
+            fail_pct,
+            top_error,
+        ])
+    md_table(headers, rows, aligns)
+
+
+def print_correlation_table(results: list[dict]):
+    """Print pass rate stratified by BDD engagement level."""
+    if not results:
+        return
+
+    buckets: dict[str, list[dict]] = {
+        "No BDD (mcp=0, hooks=0)": [],
+        "Hooks only (mcp=0, hooks>0)": [],
+        "MCP only (mcp>0, hooks=0)": [],
+        "MCP + Hooks": [],
+    }
+
+    for r in results:
+        mcp = r.get("mcp_tool_calls", 0)
+        hooks = r.get("hook_begins", 0)
+        if mcp > 0 and hooks > 0:
+            buckets["MCP + Hooks"].append(r)
+        elif mcp > 0:
+            buckets["MCP only (mcp>0, hooks=0)"].append(r)
+        elif hooks > 0:
+            buckets["Hooks only (mcp=0, hooks>0)"].append(r)
+        else:
+            buckets["No BDD (mcp=0, hooks=0)"].append(r)
+
+    print()
+    print("### BDD Engagement vs Outcomes")
+    print()
+    headers = ["Engagement Level", "Runs", "Pass%", "Avg Tokens", "Avg Cost"]
+    aligns = ["l", "r", "r", "r", "r"]
+    rows = []
+    for label in buckets:
+        runs = buckets[label]
+        n = len(runs)
+        if n == 0:
+            rows.append([label, "0", "-", "-", "-"])
+            continue
+        pass_rate = sum(1 for r in runs if r.get("acceptance_pass")) / n * 100
+        avg_tokens = sum(r.get("tokens_total", 0) for r in runs) / n
+        avg_cost = sum(r.get("budget_used_usd", 0) for r in runs) / n
+        rows.append([
+            label,
+            str(n),
+            f"{pass_rate:.0f}%",
+            fmt_tokens(int(avg_tokens)),
+            fmt_cost(avg_cost),
+        ])
+    md_table(headers, rows, aligns)
+
+
 def export_csv(results: list[dict], output_path: Path):
     """Export results as CSV."""
     if not results:
@@ -244,6 +379,12 @@ def export_csv(results: list[dict], output_path: Path):
         "tool_calls", "api_turns", "wall_time_seconds",
         "files_changed", "lines_added", "lines_removed",
         "budget_used_usd",
+        "mcp_tool_calls", "bdd_test_calls", "bdd_motivation_calls",
+        "bdd_locate_calls", "bdd_status_calls",
+        "tool_errors",
+        "hook_begins", "hook_ends", "hook_failures",
+        "hook_injections", "hook_skips", "hook_unique_facets",
+        "edit_log_entries", "edit_log_unique_facets", "edit_log_unique_files",
     ]
 
     with open(output_path, "w") as f:
@@ -277,6 +418,9 @@ def main():
     print_task_summary(results)
     print_efficiency_table(results)
     print_integrity_table(results)
+    print_engagement_table(results)
+    print_reliability_table(results)
+    print_correlation_table(results)
 
     # Export CSV if requested
     if "--csv" in sys.argv:
