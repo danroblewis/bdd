@@ -1,0 +1,8 @@
+name: "why-how-what"
+description: "Structured context using the Why/How/What hierarchy"
+claude_md: null
+context_files:
+  - "context.md"
+mcp_config: null
+settings_overlay: null
+pre_prompt: null

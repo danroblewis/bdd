@@ -1,0 +1,13 @@
+name: "targeted"
+description: "Only task-relevant context - each task gets a custom context snippet"
+claude_md: null
+context_files: []
+mcp_config: null
+settings_overlay: null
+pre_prompt: null
+per_task_context:
+  001-add-search: "context-001.md"
+  002-fix-priority-bug: "context-002.md"
+  003-add-tags: "context-003.md"
+  004-refactor-store: "context-004.md"
+  005-add-due-dates: "context-005.md"

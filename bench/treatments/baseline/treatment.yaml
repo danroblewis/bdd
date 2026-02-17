@@ -1,0 +1,7 @@
+name: "baseline"
+description: "No enhancement - just the codebase"
+claude_md: null
+context_files: []
+mcp_config: null
+settings_overlay: null
+pre_prompt: null

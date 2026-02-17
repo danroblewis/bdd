@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "taskboard"
+version = "0.1.0"
+description = "A CLI task management tool"
+requires-python = ">=3.11"
+
+[project.scripts]
+taskboard = "taskboard.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
