@@ -26,7 +26,7 @@ Without the catalog, you're guessing at intent. The catalog tells you:
 
 ## Your MCP Tools
 
-You have 8 tools available:
+You have 9 tools available:
 
 ### Understanding Context
 - **`bdd_motivation(file, start_line?, end_line?)`** — Call this when reading unfamiliar code. It returns the goal > expectation > facet chain explaining WHY those lines exist.
@@ -43,6 +43,9 @@ You have 8 tools available:
 
 ### Running Tests
 - **`bdd_test()`** — Run the test suite, parse results and coverage, rebuild the index, return summary. Call this after making changes.
+
+### Health Checks
+- **`bdd_check(category?)`** — Scan catalog and index for contradictions, orphans, and other issues. Categories: overload, overlap, structural, status, coverage, semantic. Empty = all.
 
 ## Workflow
 

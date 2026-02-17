@@ -29,7 +29,6 @@ run_claude() {
   unset CLAUDECODE
   cat "$prompt_file" | claude -p \
     --dangerously-skip-permissions \
-    --allow-dangerously-skip-permissions \
     --disallowedTools EnterPlanMode
 }
 

@@ -652,6 +652,116 @@ cd "$TEST_DIR"
 
 echo ""
 
+# --- Phase 10: bdd_check ---
+echo "Phase 10: bdd_check Health Checks"
+
+CHK_DIR=$(mktemp -d)
+cd "$CHK_DIR"
+git init -q .
+
+# Create a catalog with known issues
+python3 -c "
+import sys, json, os
+sys.path.insert(0, '$BDD_DIR')
+from bdd_server import save_catalog, save_index
+
+# Catalog with issues:
+# - f-001 and f-002 share the same test (overload)
+# - f-099 has orphan parent e-050
+# - f-003 has status 'untested' but test passed (status mismatch)
+# - e-003 has no children (empty)
+# - f-004 is a facet parented to a facet (hierarchy violation)
+cat = {'version': 1, 'nodes': [
+    {'id': 'g-001', 'type': 'goal', 'text': 'Calculator works', 'parent': None, 'priority': 1, 'labels': []},
+    {'id': 'e-001', 'type': 'expectation', 'text': 'Addition works', 'parent': 'g-001', 'priority': 1, 'labels': []},
+    {'id': 'e-002', 'type': 'expectation', 'text': 'Division edge cases', 'parent': 'g-001', 'priority': 2, 'labels': []},
+    {'id': 'e-003', 'type': 'expectation', 'text': 'Empty expectation', 'parent': 'g-001', 'priority': 3, 'labels': []},
+    {'id': 'f-001', 'type': 'facet', 'text': '2+3=5', 'parent': 'e-001', 'test': 'tests/test.py::test_add', 'status': 'passing'},
+    {'id': 'f-002', 'type': 'facet', 'text': 'addition commutes', 'parent': 'e-001', 'test': 'tests/test.py::test_add', 'status': 'passing'},
+    {'id': 'f-003', 'type': 'facet', 'text': 'div by zero', 'parent': 'e-002', 'test': 'tests/test.py::test_div', 'status': 'untested'},
+    {'id': 'f-099', 'type': 'facet', 'text': 'orphan facet', 'parent': 'e-050', 'test': None, 'status': 'untested'},
+    {'id': 'f-004', 'type': 'facet', 'text': 'bad parent', 'parent': 'f-001', 'test': None, 'status': 'untested'},
+]}
+save_catalog(cat, '$CHK_DIR')
+
+# Create index with test results showing f-003's test passed (but status is untested)
+# Also f-005 passes but has no coverage lines
+index = {
+    'forward': {
+        'src/calc.py': {
+            '10': ['f-001', 'f-003'],
+            '11': ['f-001'],
+            '12': ['f-003']
+        }
+    },
+    'reverse': {
+        'f-001': {'src/calc.py': [10, 11]},
+        'f-003': {'src/calc.py': [10, 12]}
+    },
+    'test_results': {
+        'tests/test.py::test_add': 'passed',
+        'tests/test.py::test_div': 'passed'
+    },
+    'facet_status': {}
+}
+save_index(index, '$CHK_DIR')
+"
+
+# Test check (all categories)
+CHECK_OUT=$(python3 "$BDD_DIR/bdd_server.py" "$CHK_DIR" check 2>&1)
+assert_contains "check detects overload" "echo '$CHECK_OUT'" "Test Overload"
+assert_contains "check detects shared test" "echo '$CHECK_OUT'" "test_add"
+assert_contains "check detects orphan" "echo '$CHECK_OUT'" "Orphan"
+assert_contains "check detects orphan parent" "echo '$CHECK_OUT'" "e-050"
+assert_contains "check detects status mismatch" "echo '$CHECK_OUT'" "Status Mismatch"
+assert_contains "check detects empty expectation" "echo '$CHECK_OUT'" "Empty"
+assert_contains "check detects hierarchy violation" "echo '$CHECK_OUT'" "Hierarchy"
+assert_contains "check detects overlap" "echo '$CHECK_OUT'" "Code Overlap"
+
+# Test filtered check
+OVERLOAD_OUT=$(python3 "$BDD_DIR/bdd_server.py" "$CHK_DIR" check overload 2>&1)
+assert_contains "filtered overload has Overload" "echo '$OVERLOAD_OUT'" "Test Overload"
+
+STRUCT_OUT=$(python3 "$BDD_DIR/bdd_server.py" "$CHK_DIR" check structural 2>&1)
+assert_contains "filtered structural has Orphan" "echo '$STRUCT_OUT'" "Orphan"
+
+# Test clean catalog has no issues
+CLEAN_DIR=$(mktemp -d)
+cd "$CLEAN_DIR"
+git init -q .
+python3 -c "
+import sys, json, os
+sys.path.insert(0, '$BDD_DIR')
+from bdd_server import save_catalog, save_index
+
+cat = {'version': 1, 'nodes': [
+    {'id': 'g-001', 'type': 'goal', 'text': 'Works', 'parent': None, 'priority': 1, 'labels': []},
+    {'id': 'e-001', 'type': 'expectation', 'text': 'Does thing', 'parent': 'g-001', 'priority': 1, 'labels': []},
+    {'id': 'f-001', 'type': 'facet', 'text': 'thing works', 'parent': 'e-001', 'test': 'tests/test.py::test_thing', 'status': 'passing'},
+]}
+save_catalog(cat, '$CLEAN_DIR')
+
+index = {
+    'forward': {'src/main.py': {'1': ['f-001']}},
+    'reverse': {'f-001': {'src/main.py': [1]}},
+    'test_results': {'tests/test.py::test_thing': 'passed'},
+    'facet_status': {}
+}
+save_index(index, '$CLEAN_DIR')
+"
+
+CLEAN_OUT=$(python3 "$BDD_DIR/bdd_server.py" "$CLEAN_DIR" check 2>&1)
+assert_contains "clean catalog has no issues" "echo '$CLEAN_OUT'" "No issues found"
+
+# Test invalid category
+INVALID_OUT=$(python3 "$BDD_DIR/bdd_server.py" "$CLEAN_DIR" check bogus 2>&1)
+assert_contains "invalid category error" "echo '$INVALID_OUT'" "Unknown category"
+
+rm -rf "$CHK_DIR" "$CLEAN_DIR"
+cd "$TEST_DIR"
+
+echo ""
+
 # --- Summary ---
 echo "================================"
 TOTAL=$((PASS + FAIL))

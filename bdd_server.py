@@ -907,6 +907,272 @@ def bdd_test() -> str:
         "index_files": len(index.get("forward", {})),
     })
 
+
+@mcp.tool()
+def bdd_check(category: str = "") -> str:
+    """Scan catalog and index for contradictions, orphans, and other issues.
+
+    Args:
+        category: Filter to one check type: overload, overlap, structural, status, coverage, semantic. Empty = all.
+    """
+    root = get_root()
+    catalog = load_catalog(root)
+    if not catalog:
+        return "No catalog.json found"
+    nodes = catalog["nodes"]
+    index = load_index(root)
+    forward = index.get("forward", {})
+    reverse = index.get("reverse", {})
+    test_results = index.get("test_results", {})
+
+    node_map = {n["id"]: n for n in nodes}
+
+    all_categories = ("overload", "overlap", "structural", "status", "coverage", "semantic")
+    if category and category not in all_categories:
+        return f"Unknown category '{category}'. Choose from: {', '.join(all_categories)}"
+    cats = (category,) if category else all_categories
+
+    sections = []
+    total_issues = 0
+    total_review = 0
+
+    # --- Overload: multiple facets linked to the same test ---
+    if "overload" in cats:
+        test_to_facets = {}
+        for n in nodes:
+            if n["type"] == "facet" and n.get("test"):
+                test_to_facets.setdefault(n["test"], []).append(n)
+        issues = []
+        for tid, facets in sorted(test_to_facets.items()):
+            if len(facets) > 1:
+                lines = [f'  [!] "{tid}" shared by {len(facets)} facets:']
+                for f in facets:
+                    parent = node_map.get(f.get("parent"), {})
+                    pid = parent.get("id", "?")
+                    lines.append(f"      {f['id']} ({pid}) {f['text']}")
+                issues.append("\n".join(lines))
+        if issues:
+            sections.append(f"--- Test Overload ({len(issues)} issue{'s' if len(issues) != 1 else ''}) ---\n" + "\n\n".join(issues))
+            total_issues += len(issues)
+
+    # --- Overlap: facets from DIFFERENT expectations sharing source lines ---
+    if "overlap" in cats:
+        overlap_lines = {}  # (file, line) -> {exp_id: [facet_node]}
+        for filepath, line_map in forward.items():
+            for ls, fids in line_map.items():
+                by_exp = {}
+                for fid in fids:
+                    fnode = node_map.get(fid)
+                    if not fnode:
+                        continue
+                    exp_id = fnode.get("parent", "?")
+                    by_exp.setdefault(exp_id, []).append(fnode)
+                if len(by_exp) > 1:
+                    overlap_lines[(filepath, int(ls))] = by_exp
+
+        if overlap_lines:
+            by_file = {}
+            for (fp, ln), by_exp in overlap_lines.items():
+                by_file.setdefault(fp, []).append((ln, by_exp))
+
+            issues = []
+            for fp in sorted(by_file):
+                entries = sorted(by_file[fp], key=lambda x: x[0])
+                # Merge contiguous lines into ranges
+                ranges = []
+                rng_start = entries[0][0]
+                rng_end = entries[0][0]
+                rng_facets = {}
+                for ln, by_exp in entries:
+                    if ln <= rng_end + 1:
+                        rng_end = ln
+                    else:
+                        ranges.append((rng_start, rng_end, dict(rng_facets)))
+                        rng_start = ln
+                        rng_end = ln
+                        rng_facets = {}
+                    for eid, fnodes in by_exp.items():
+                        rng_facets.setdefault(eid, set()).update(f["id"] for f in fnodes)
+                ranges.append((rng_start, rng_end, dict(rng_facets)))
+
+                for s, e, exp_facets in ranges:
+                    rng_str = f"{s}-{e}" if s != e else str(s)
+                    lines = [f"  [!] {fp}:{rng_str} claimed by different expectations:"]
+                    for eid, fid_set in sorted(exp_facets.items()):
+                        exp_node = node_map.get(eid, {})
+                        exp_text = exp_node.get("text", "?")
+                        for fid in sorted(fid_set):
+                            fnode = node_map.get(fid, {})
+                            lines.append(f"      {fid} ({eid}: {exp_text}) {fnode.get('text', '?')}")
+                    issues.append("\n".join(lines))
+            if issues:
+                sections.append(f"--- Code Overlap ({len(issues)} issue{'s' if len(issues) != 1 else ''}) ---\n" + "\n\n".join(issues))
+                total_issues += len(issues)
+
+    # --- Structural: orphans, cycles, duplicates, empty expectations, type hierarchy ---
+    if "structural" in cats:
+        issues = []
+        id_set = set(node_map.keys())
+
+        # Orphan check
+        for n in nodes:
+            pid = n.get("parent")
+            if pid and pid not in id_set:
+                issues.append(f'  [!] Orphan: {n["id"]} parent "{pid}" does not exist')
+
+        # Cycle detection
+        for n in nodes:
+            visited = set()
+            cur = n
+            while cur:
+                if cur["id"] in visited:
+                    issues.append(f'  [!] Cycle: {n["id"]} has circular parent chain')
+                    break
+                visited.add(cur["id"])
+                pid = cur.get("parent")
+                cur = node_map.get(pid) if pid else None
+
+        # Duplicate text
+        seen_texts = {}
+        for n in nodes:
+            key = (n["type"], n["text"].lower().strip())
+            if key in seen_texts:
+                issues.append(f'  [!] Duplicate: {n["id"]} and {seen_texts[key]} share text "{n["text"]}"')
+            else:
+                seen_texts[key] = n["id"]
+
+        # Empty expectations
+        for n in nodes:
+            if n["type"] == "expectation":
+                children = [c for c in nodes if c.get("parent") == n["id"]]
+                if not children:
+                    issues.append(f'  [!] Empty: {n["id"]} "{n["text"]}" has no facets')
+
+        # Type hierarchy violations
+        valid_parent_type = {"goal": (None,), "expectation": ("goal",), "facet": ("expectation",)}
+        for n in nodes:
+            pid = n.get("parent")
+            if pid:
+                parent_node = node_map.get(pid)
+                if parent_node:
+                    allowed = valid_parent_type.get(n["type"], ())
+                    if parent_node["type"] not in allowed:
+                        issues.append(f'  [!] Hierarchy: {n["id"]} ({n["type"]}) has parent {pid} ({parent_node["type"]})')
+            elif n["type"] != "goal":
+                issues.append(f'  [!] Hierarchy: {n["id"]} ({n["type"]}) has no parent (only goals can be root)')
+
+        if issues:
+            sections.append(f"--- Structural ({len(issues)} issue{'s' if len(issues) != 1 else ''}) ---\n" + "\n".join(issues))
+            total_issues += len(issues)
+
+    # --- Status: facet status disagrees with test results ---
+    if "status" in cats:
+        issues = []
+        for n in nodes:
+            if n["type"] != "facet" or not n.get("test"):
+                continue
+            matched_id, result = match_test_to_facet(test_results, n["test"])
+            if matched_id is None:
+                continue
+            stored = n.get("status", "untested")
+            if result == "passed" and stored != "passing":
+                issues.append(f'  [!] {n["id"]} test passed but status is "{stored}"')
+            elif result == "failed" and stored != "failing":
+                issues.append(f'  [!] {n["id"]} test failed but status is "{stored}"')
+
+        if issues:
+            sections.append(f"--- Status Mismatch ({len(issues)} issue{'s' if len(issues) != 1 else ''}) ---\n" + "\n".join(issues))
+            total_issues += len(issues)
+
+    # --- Coverage: facet test passes but no lines in reverse index ---
+    if "coverage" in cats:
+        issues = []
+        for n in nodes:
+            if n["type"] != "facet" or not n.get("test"):
+                continue
+            matched_id, result = match_test_to_facet(test_results, n["test"])
+            if result != "passed":
+                continue
+            if n["id"] not in reverse:
+                issues.append(f'  [!] {n["id"]} "{n["text"]}" test passes but has no coverage lines')
+
+        if issues:
+            sections.append(f"--- Coverage Gap ({len(issues)} issue{'s' if len(issues) != 1 else ''}) ---\n" + "\n".join(issues))
+            total_issues += len(issues)
+
+    # --- Semantic: candidate contradictions between different expectations ---
+    if "semantic" in cats:
+        STOPWORDS = {"the", "a", "an", "is", "are", "was", "were", "be", "been",
+                     "being", "have", "has", "had", "do", "does", "did", "will",
+                     "would", "could", "should", "may", "might", "can", "shall",
+                     "to", "of", "in", "for", "on", "with", "at", "by", "from",
+                     "it", "its", "this", "that", "and", "or", "not", "no", "but",
+                     "if", "then", "than", "so", "as", "up", "out", "about"}
+
+        def keywords(text):
+            words = set()
+            for w in text.lower().split():
+                w = w.strip(".,;:!?\"'()-")
+                if len(w) > 1 and w not in STOPWORDS:
+                    words.add(w)
+            return words
+
+        facets = [n for n in nodes if n["type"] == "facet"]
+        pairs = []
+        for i in range(len(facets)):
+            for j in range(i + 1, len(facets)):
+                a, b = facets[i], facets[j]
+                if a.get("parent") == b.get("parent"):
+                    continue
+
+                shared_files = set()
+                a_rev = reverse.get(a["id"], {})
+                b_rev = reverse.get(b["id"], {})
+                for fp in set(a_rev) & set(b_rev):
+                    if set(a_rev[fp]) & set(b_rev[fp]):
+                        shared_files.add(fp)
+
+                kw_a = keywords(a["text"])
+                kw_b = keywords(b["text"])
+                shared_kw = kw_a & kw_b
+
+                if shared_files or len(shared_kw) >= 2:
+                    detail = []
+                    if shared_files:
+                        detail.append(f"Shared code: {', '.join(sorted(shared_files))}")
+                    if shared_kw:
+                        detail.append(f"Shared keywords: {', '.join(sorted(shared_kw))}")
+                    pairs.append((a, b, detail))
+
+        if pairs:
+            issues = []
+            for a, b, detail in pairs:
+                lines = [
+                    f'  [?] {a["id"]}: "{a["text"]}" ({a.get("parent", "?")})',
+                    f'      {b["id"]}: "{b["text"]}" ({b.get("parent", "?")})',
+                ]
+                for d in detail:
+                    lines.append(f"      {d}")
+                issues.append("\n".join(lines))
+            sections.append(f"--- Semantic Candidates ({len(pairs)} pair{'s' if len(pairs) != 1 else ''}) ---\n" + "\n\n".join(issues))
+            total_review += len(pairs)
+
+    # --- Build final report ---
+    if not sections:
+        return "=== Catalog Health Check ===\n\nNo issues found."
+
+    parts = ["=== Catalog Health Check ===", ""]
+    parts.extend(sections)
+    parts.append("")
+    summary_parts = []
+    if total_issues:
+        summary_parts.append(f"{total_issues} issue{'s' if total_issues != 1 else ''}")
+    if total_review:
+        summary_parts.append(f"{total_review} review candidate{'s' if total_review != 1 else ''}")
+    parts.append(f"=== {', '.join(summary_parts)} ===")
+    return "\n".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # CLI mode: --run-tests
 # ---------------------------------------------------------------------------
@@ -1027,9 +1293,11 @@ def cli_query(args):
     elif tool == "link":
         # link <facet_id> <test_id>
         print(bdd_link(rest[0] if rest else "", rest[1] if len(rest) > 1 else ""))
+    elif tool == "check":
+        print(bdd_check(category=rest[0] if rest else ""))
     else:
         print(f"Unknown tool: {tool}")
-        print("Available: status, next, tree, motivation, locate, test, add, link")
+        print("Available: status, next, tree, motivation, locate, test, add, link, check")
         sys.exit(1)
 
 
