@@ -177,6 +177,23 @@ def engagement_tag(r: dict) -> str:
     return "".join(parts) if parts else "-"
 
 
+def enrich_results(results: list[dict]) -> list[dict]:
+    """Add computed classification fields to each result dict (mutates in place)."""
+    for r in results:
+        c = classify_run(r)
+        r["_tier"] = c["tier"]
+        r["_tier_label"] = TIER_LABELS.get(c["tier"], c["tier"])
+        r["_engagement"] = c["engagement"]
+        r["_hook_variant"] = c["hook_variant"]
+        r["_context_volume"] = c["context_volume"]
+        r["_engagement_tag"] = engagement_tag(r)
+        r["_has_hooks"] = c["has_hooks"]
+        r["_has_mcp"] = c["has_mcp"]
+        r["_has_agents"] = c["has_agents"]
+        r["_has_skills"] = c["has_skills"]
+    return results
+
+
 # --- Formatters ---
 
 def _is_rate_limited(data: dict) -> bool:
@@ -1438,6 +1455,984 @@ def print_sequence_step_detail(seq_results: list[dict]):
 
 
 # ============================================================
+# HTML Report
+# ============================================================
+
+def generate_html_report(results: list[dict], seq_results: list[dict],
+                         output_path: Path, since: str = "", num_rate_limited: int = 0):
+    """Generate self-contained interactive HTML report."""
+    import datetime
+
+    data = {
+        "results": results,
+        "sequences": seq_results,
+        "meta": {
+            "generated": datetime.datetime.now().isoformat(),
+            "since": since,
+            "num_rate_limited": num_rate_limited,
+            "total_results": len(results),
+            "total_sequences": len(seq_results),
+        },
+        "constants": {
+            "TIER_ORDER": TIER_ORDER,
+            "TIER_LABELS": TIER_LABELS,
+            "HOOK_VARIANTS": HOOK_VARIANTS,
+            "HOOKS_NO_MCP_TREATMENTS": list(HOOKS_NO_MCP_TREATMENTS),
+            "AGENT_TREATMENTS": list(AGENT_TREATMENTS),
+        },
+    }
+
+    data_json = json.dumps(data, default=str)
+
+    html = HTML_TEMPLATE.replace("/*DATA_PLACEHOLDER*/", data_json)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        f.write(html)
+    print(f"HTML report written to: {output_path}")
+
+
+HTML_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BDD Bench Report</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:#f8f9fa;color:#212529;font-size:13px;line-height:1.4}
+.top-bar{background:#fff;border-bottom:1px solid #dee2e6;padding:8px 16px;position:sticky;top:0;z-index:100}
+.top-bar h1{font-size:16px;margin-bottom:4px}
+.filters{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.filters label{font-size:11px;color:#6c757d;margin-right:2px}
+.filters input{font-size:12px;padding:2px 6px;border:1px solid #ced4da;border-radius:3px;width:140px}
+.filters input.invalid{border-color:#dc3545}
+.filters .stats{margin-left:auto;font-size:11px;color:#6c757d}
+.tab-bar{display:flex;gap:0;background:#fff;border-bottom:2px solid #dee2e6;padding:0 16px;overflow-x:auto}
+.tab-bar button{background:none;border:none;padding:8px 14px;font-size:12px;cursor:pointer;
+  border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap;color:#495057}
+.tab-bar button:hover{color:#0d6efd}
+.tab-bar button.active{color:#0d6efd;border-bottom-color:#0d6efd;font-weight:600}
+.tab-content{display:none;padding:16px}
+.tab-content.active{display:block}
+.tab-content h3{font-size:14px;margin:16px 0 6px;color:#343a40}
+.tab-content h3:first-child{margin-top:0}
+.tab-content p.note{font-size:11px;color:#6c757d;margin-bottom:6px}
+.scroll-wrap{overflow-x:auto;margin-bottom:16px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{padding:4px 8px;border:1px solid #dee2e6;text-align:left;white-space:nowrap}
+th{background:#f1f3f5;position:sticky;top:0;cursor:pointer;user-select:none;font-weight:600}
+th:hover{background:#e2e6ea}
+th .sort-arrow{font-size:9px;margin-left:2px;color:#adb5bd}
+th.sorted-asc .sort-arrow::after{content:" \25B2";color:#0d6efd}
+th.sorted-desc .sort-arrow::after{content:" \25BC";color:#0d6efd}
+tr:nth-child(even) td{background:#f8f9fa}
+tr:hover td{background:#e9ecef}
+td.pass-high{background:#d4edda !important;color:#155724}
+td.pass-mid{background:#fff3cd !important;color:#856404}
+td.pass-low{background:#f8d7da !important;color:#721c24}
+td.r{text-align:right}
+td.c{text-align:center}
+.diag-section{margin-bottom:12px}
+.diag-section strong{font-size:12px}
+.diag-section ul{margin:4px 0 4px 20px;font-size:12px}
+.diag-section .metric{font-size:12px;margin:2px 0}
+</style>
+</head>
+<body>
+<div class="top-bar">
+  <h1>BDD Bench Report</h1>
+  <div class="filters">
+    <label>Treatment:</label><input id="f-treatment" placeholder="regex">
+    <label>Task:</label><input id="f-task" placeholder="regex">
+    <label>From:</label><input id="f-start" type="datetime-local">
+    <label>To:</label><input id="f-end" type="datetime-local">
+    <span class="stats" id="stats-bar"></span>
+  </div>
+</div>
+<div class="tab-bar" id="tab-bar">
+  <button data-tab="summary" class="active">Summary</button>
+  <button data-tab="matrix">Matrix</button>
+  <button data-tab="efficiency">Efficiency</button>
+  <button data-tab="bdd">BDD Analysis</button>
+  <button data-tab="context">Context</button>
+  <button data-tab="diagnostics">Diagnostics</button>
+  <button data-tab="detail">Detail</button>
+  <button data-tab="sequences">Sequences</button>
+</div>
+<div id="tab-summary" class="tab-content active"></div>
+<div id="tab-matrix" class="tab-content"></div>
+<div id="tab-efficiency" class="tab-content"></div>
+<div id="tab-bdd" class="tab-content"></div>
+<div id="tab-context" class="tab-content"></div>
+<div id="tab-diagnostics" class="tab-content"></div>
+<div id="tab-detail" class="tab-content"></div>
+<div id="tab-sequences" class="tab-content"></div>
+
+<script>
+// === Data ===
+var DATA = /*DATA_PLACEHOLDER*/;
+
+// === State ===
+var state = {
+  activeTab: 'summary',
+  dirty: {},
+  filtered: null,
+  filteredSeq: null
+};
+
+// === Utilities ===
+function groupBy(arr, keyFn) {
+  var m = {};
+  for (var i = 0; i < arr.length; i++) {
+    var k = keyFn(arr[i]);
+    if (!m[k]) m[k] = [];
+    m[k].push(arr[i]);
+  }
+  return m;
+}
+function sortedKeys(obj) { return Object.keys(obj).sort(); }
+function sum(arr, fn) { var s = 0; for (var i = 0; i < arr.length; i++) s += fn(arr[i]); return s; }
+function count(arr, fn) { var c = 0; for (var i = 0; i < arr.length; i++) if (fn(arr[i])) c++; return c; }
+function fmtPct(n, total) { return total === 0 ? '-' : Math.round(n / total * 100) + '%'; }
+function fmtTokens(n) { return n >= 1000 ? Math.round(n / 1000) + 'k' : String(n); }
+function fmtCost(c) { return '$' + c.toFixed(2); }
+function fmtBool(b) { return b ? 'YES' : 'NO'; }
+function fmtDelta(d) { return d > 0 ? '+' + d : String(d); }
+function fmtFloat(v, d) { return v.toFixed(d === undefined ? 1 : d); }
+function avg(arr, fn) { return arr.length === 0 ? 0 : sum(arr, fn) / arr.length; }
+function passClass(pctStr) {
+  var v = parseInt(pctStr);
+  if (isNaN(v)) return '';
+  if (v >= 90) return 'pass-high';
+  if (v >= 40) return 'pass-mid';
+  return 'pass-low';
+}
+
+// === Generic table renderer ===
+function renderTable(container, headers, rows, aligns, opts) {
+  opts = opts || {};
+  var wrap = document.createElement('div');
+  wrap.className = 'scroll-wrap';
+  var table = document.createElement('table');
+  var thead = document.createElement('thead');
+  var hr = document.createElement('tr');
+  for (var i = 0; i < headers.length; i++) {
+    var th = document.createElement('th');
+    th.textContent = headers[i];
+    var sp = document.createElement('span');
+    sp.className = 'sort-arrow';
+    th.appendChild(sp);
+    th.dataset.col = i;
+    th.addEventListener('click', (function(tbl, ci, als) {
+      return function() {
+        sortTable(tbl, ci, als);
+      };
+    })(table, i, aligns));
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr);
+  table.appendChild(thead);
+  var tbody = document.createElement('tbody');
+  for (var r = 0; r < rows.length; r++) {
+    var tr = document.createElement('tr');
+    for (var c = 0; c < rows[r].length; c++) {
+      var td = document.createElement('td');
+      var val = rows[r][c];
+      td.textContent = val;
+      var al = aligns && aligns[c] ? aligns[c] : 'l';
+      if (al === 'r') td.className = 'r';
+      else if (al === 'c') td.className = 'c';
+      // Color pass% cells
+      if (headers[c] && /pass%|pass|success%/i.test(headers[c]) && typeof val === 'string' && val.endsWith('%')) {
+        var pc = passClass(val);
+        if (pc) td.classList.add(pc);
+      }
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  container.appendChild(wrap);
+}
+
+function sortTable(table, colIdx, aligns) {
+  var thead = table.querySelector('thead');
+  var ths = thead.querySelectorAll('th');
+  var curr = ths[colIdx].classList.contains('sorted-asc') ? 'asc' : ths[colIdx].classList.contains('sorted-desc') ? 'desc' : '';
+  for (var i = 0; i < ths.length; i++) { ths[i].classList.remove('sorted-asc', 'sorted-desc'); }
+  var dir = curr === 'asc' ? 'desc' : 'asc';
+  ths[colIdx].classList.add('sorted-' + dir);
+  var tbody = table.querySelector('tbody');
+  var rows = Array.from(tbody.rows);
+  rows.sort(function(a, b) {
+    var av = a.cells[colIdx].textContent.trim();
+    var bv = b.cells[colIdx].textContent.trim();
+    // Try numeric
+    var an = parseFloat(av.replace(/[%$,ks]/g, '')), bn = parseFloat(bv.replace(/[%$,ks]/g, ''));
+    if (!isNaN(an) && !isNaN(bn)) return dir === 'asc' ? an - bn : bn - an;
+    return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
+  for (var i = 0; i < rows.length; i++) tbody.appendChild(rows[i]);
+}
+
+// === Bucket stats (mirrors Python _bucket_stats) ===
+function bucketStats(runs) {
+  var n = runs.length;
+  if (n === 0) return {n:0, passPct:'-', avgTokens:'-', avgCost:'-', avgTurns:'-', tamperPct:'-'};
+  return {
+    n: n,
+    passPct: fmtPct(count(runs, function(r){return r.acceptance_pass}), n),
+    avgTokens: fmtTokens(Math.round(avg(runs, function(r){return r.tokens_total||0}))),
+    avgCost: fmtCost(avg(runs, function(r){return r.budget_used_usd||0})),
+    avgTurns: fmtFloat(avg(runs, function(r){return r.api_turns||0})),
+    tamperPct: fmtPct(count(runs, function(r){return r.regression_tests_modified}), n)
+  };
+}
+
+// === Filtering ===
+function tryRegex(pattern) {
+  if (!pattern) return null;
+  try { return new RegExp(pattern, 'i'); } catch(e) { return false; }
+}
+// Convert datetime-local value "2026-02-03T00:00" to compact "20260203T000000Z"
+function toCompactTS(dtLocal) {
+  if (!dtLocal) return '';
+  return dtLocal.replace(/[-:]/g, '').replace(/T(\d{4})$/, 'T$100') + 'Z';
+}
+
+function getFilteredResults() {
+  var tRe = tryRegex(document.getElementById('f-treatment').value);
+  var kRe = tryRegex(document.getElementById('f-task').value);
+  var startVal = toCompactTS(document.getElementById('f-start').value);
+  var endVal = toCompactTS(document.getElementById('f-end').value);
+
+  // Mark invalid
+  document.getElementById('f-treatment').classList.toggle('invalid', tRe === false);
+  document.getElementById('f-task').classList.toggle('invalid', kRe === false);
+
+  var filtered = DATA.results.filter(function(r) {
+    if (tRe && !tRe.test(r.treatment)) return false;
+    if (kRe && !kRe.test(r.task)) return false;
+    if (startVal && r.timestamp && r.timestamp < startVal) return false;
+    if (endVal && r.timestamp && r.timestamp > endVal) return false;
+    return true;
+  });
+  var filteredSeq = DATA.sequences.filter(function(r) {
+    if (tRe && !tRe.test(r.treatment)) return false;
+    if (kRe && !kRe.test(r.sequence)) return false;
+    if (startVal && r.timestamp && r.timestamp < startVal) return false;
+    if (endVal && r.timestamp && r.timestamp > endVal) return false;
+    return true;
+  });
+
+  state.filtered = filtered;
+  state.filteredSeq = filteredSeq;
+
+  // Stats bar
+  document.getElementById('stats-bar').textContent =
+    'Showing ' + filtered.length + ' of ' + DATA.results.length + ' results' +
+    (filteredSeq.length !== DATA.sequences.length ? ', ' + filteredSeq.length + ' of ' + DATA.sequences.length + ' sequences' : '') +
+    (DATA.meta.num_rate_limited ? ' (' + DATA.meta.num_rate_limited + ' rate-limited excluded)' : '') +
+    (DATA.meta.since ? ' since ' + DATA.meta.since : '');
+
+  // Mark all tabs dirty
+  var tabs = ['summary','matrix','efficiency','bdd','context','diagnostics','detail','sequences'];
+  for (var i = 0; i < tabs.length; i++) state.dirty[tabs[i]] = true;
+  renderActiveTab();
+}
+
+// === Tab switching ===
+function switchTab(tabName) {
+  state.activeTab = tabName;
+  var buttons = document.querySelectorAll('.tab-bar button');
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].classList.toggle('active', buttons[i].dataset.tab === tabName);
+  }
+  var panes = document.querySelectorAll('.tab-content');
+  for (var i = 0; i < panes.length; i++) {
+    panes[i].classList.toggle('active', panes[i].id === 'tab-' + tabName);
+  }
+  if (state.dirty[tabName]) renderActiveTab();
+}
+
+function renderActiveTab() {
+  var tab = state.activeTab;
+  var el = document.getElementById('tab-' + tab);
+  if (!el || !state.dirty[tab]) return;
+  el.innerHTML = '';
+  var results = state.filtered || [];
+  var seqs = state.filteredSeq || [];
+
+  switch(tab) {
+    case 'summary': renderSummaryTab(el, results, seqs); break;
+    case 'matrix': renderMatrixTab(el, results); break;
+    case 'efficiency': renderEfficiencyTab(el, results); break;
+    case 'bdd': renderBddTab(el, results); break;
+    case 'context': renderContextTab(el, results); break;
+    case 'diagnostics': renderDiagnosticsTab(el, results); break;
+    case 'detail': renderDetailTab(el, results); break;
+    case 'sequences': renderSequencesTab(el, seqs); break;
+  }
+  state.dirty[tab] = false;
+}
+
+// ============ TAB 1: Summary ============
+function renderSummaryTab(el, results, seqs) {
+  // Summary by Treatment
+  var h = document.createElement('h3'); h.textContent = 'Summary by Treatment'; el.appendChild(h);
+  var byT = groupBy(results, function(r){return r.treatment});
+  var headers = ['Treatment','Runs','Pass%','Avg Blks','Skip%','Tamper%','Avg Tokens','Avg Turns','Avg Time','Avg Cost'];
+  var aligns = ['l','r','r','r','r','r','r','r','r','r'];
+  var rows = [];
+  sortedKeys(byT).forEach(function(t) {
+    var runs = byT[t], n = runs.length;
+    rows.push([t, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+      fmtFloat(avg(runs,function(r){return r.stop_blocks||0})),
+      fmtPct(count(runs,function(r){return(r.regression_skipped||0)>0}),n),
+      fmtPct(count(runs,function(r){return r.regression_tests_modified}),n),
+      fmtTokens(Math.round(avg(runs,function(r){return r.tokens_total||0}))),
+      fmtFloat(avg(runs,function(r){return r.api_turns||0})),
+      Math.round(avg(runs,function(r){return r.wall_time_seconds||0}))+'s',
+      fmtCost(avg(runs,function(r){return r.budget_used_usd||0}))]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // Sequence Summary by Treatment
+  if (seqs.length > 0) {
+    h = document.createElement('h3'); h.textContent = 'Sequence Summary by Treatment'; el.appendChild(h);
+    var byTSeq = groupBy(seqs, function(r){return r.treatment});
+    var sh = ['Treatment','Runs','All Pass%','Avg Steps','Avg Regressions','Avg Tokens','Avg Time','Avg Cost'];
+    var sa = ['l','r','r','r','r','r','r','r'];
+    var sr = [];
+    sortedKeys(byTSeq).forEach(function(t) {
+      var runs = byTSeq[t], n = runs.length;
+      sr.push([t, n,
+        fmtPct(count(runs,function(r){return r.aggregate&&r.aggregate.all_steps_pass}),n),
+        fmtFloat(avg(runs,function(r){return r.num_steps||0})),
+        fmtFloat(avg(runs,function(r){return(r.aggregate&&r.aggregate.prior_step_regressions)||0})),
+        fmtTokens(Math.round(avg(runs,function(r){return(r.aggregate&&r.aggregate.total_tokens)||0}))),
+        Math.round(avg(runs,function(r){return(r.aggregate&&r.aggregate.total_wall_time_seconds)||0}))+'s',
+        fmtCost(avg(runs,function(r){return(r.aggregate&&r.aggregate.total_budget_used_usd)||0}))]);
+    });
+    renderTable(el, sh, sr, sa);
+  }
+
+  // Summary by Task
+  h = document.createElement('h3'); h.textContent = 'Summary by Task'; el.appendChild(h);
+  var byTask = groupBy(results, function(r){return r.task});
+  headers = ['Task','Runs','Pass%','Avg Tokens','Avg Turns','Avg Cost'];
+  aligns = ['l','r','r','r','r','r'];
+  rows = [];
+  sortedKeys(byTask).forEach(function(t) {
+    var runs = byTask[t], n = runs.length;
+    rows.push([t, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+      fmtTokens(Math.round(avg(runs,function(r){return r.tokens_total||0}))),
+      fmtFloat(avg(runs,function(r){return r.api_turns||0})),
+      fmtCost(avg(runs,function(r){return r.budget_used_usd||0}))]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // Tier Summary
+  h = document.createElement('h3'); h.textContent = 'Outcomes by Treatment Tier'; el.appendChild(h);
+  var byTier = groupBy(results, function(r){return r._tier||'none'});
+  headers = ['Tier','Treatments','Runs','Pass%','Tamper%','Avg Tokens','Avg Turns','Avg Cost'];
+  aligns = ['l','r','r','r','r','r','r','r'];
+  rows = [];
+  DATA.constants.TIER_ORDER.forEach(function(tk) {
+    var runs = byTier[tk]; if (!runs||!runs.length) return;
+    var n = runs.length, tSet = {};
+    runs.forEach(function(r){tSet[r.treatment]=1});
+    rows.push([DATA.constants.TIER_LABELS[tk]||tk, Object.keys(tSet).length, n,
+      fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+      fmtPct(count(runs,function(r){return r.regression_tests_modified}),n),
+      fmtTokens(Math.round(avg(runs,function(r){return r.tokens_total||0}))),
+      fmtFloat(avg(runs,function(r){return r.api_turns||0})),
+      fmtCost(avg(runs,function(r){return r.budget_used_usd||0}))]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // Task Difficulty
+  h = document.createElement('h3'); h.textContent = 'Task Difficulty Ranking'; el.appendChild(h);
+  var tEntries = Object.keys(byTask).map(function(t) {
+    var runs = byTask[t];
+    return {task:t, runs:runs, passRate: count(runs,function(r){return r.acceptance_pass})/runs.length};
+  }).sort(function(a,b){return a.passRate - b.passRate});
+  headers = ['Task','Runs','Pass%','Tamper%','Avg Tokens','Avg Cost','Best Treatment','Worst Treatment'];
+  aligns = ['l','r','r','r','r','r','l','l'];
+  rows = [];
+  tEntries.forEach(function(e) {
+    var runs = e.runs, n = runs.length;
+    var byTr = groupBy(runs, function(r){return r.treatment});
+    var trEntries = Object.keys(byTr).map(function(t){
+      var rr=byTr[t]; return {name:t, pct:count(rr,function(r){return r.acceptance_pass})/rr.length};
+    });
+    var best = trEntries.reduce(function(a,b){return a.pct>=b.pct?a:b});
+    var worst = trEntries.reduce(function(a,b){return a.pct<=b.pct?a:b});
+    rows.push([e.task, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+      fmtPct(count(runs,function(r){return r.regression_tests_modified}),n),
+      fmtTokens(Math.round(avg(runs,function(r){return r.tokens_total||0}))),
+      fmtCost(avg(runs,function(r){return r.budget_used_usd||0})),
+      best.name+' ('+Math.round(best.pct*100)+'%)',
+      worst.name+' ('+Math.round(worst.pct*100)+'%)']);
+  });
+  if (tEntries.length >= 2) renderTable(el, headers, rows, aligns);
+}
+
+// ============ TAB 2: Matrix ============
+function renderMatrixTab(el, results) {
+  var h = document.createElement('h3'); h.textContent = 'Task \u00d7 Treatment Pass Matrix'; el.appendChild(h);
+  var tasks = []; var treatments = []; var tSet={}, trSet={};
+  results.forEach(function(r){tSet[r.task]=1;trSet[r.treatment]=1});
+  tasks = Object.keys(tSet).sort(); treatments = Object.keys(trSet).sort();
+  if (tasks.length < 2 || treatments.length < 2) { el.appendChild(document.createTextNode('Need 2+ tasks and treatments.')); return; }
+  var grid = {};
+  results.forEach(function(r) {
+    var k = r.task+'|||'+r.treatment;
+    if (!grid[k]) grid[k] = [];
+    grid[k].push(!!r.acceptance_pass);
+  });
+  var headers = ['Task'].concat(treatments.map(function(t){return t.length<=12?t:t.replace('bdd-','b-').replace('whw-plus-','whw+').replace('pre-prompt-','pp-').replace('-context','-ctx').substring(0,12)}));
+  var aligns = ['l'].concat(treatments.map(function(){return 'c'}));
+  var rows = [];
+  tasks.forEach(function(task) {
+    var row = [task];
+    treatments.forEach(function(tr) {
+      var passes = grid[task+'|||'+tr] || [];
+      if (!passes.length) row.push('-');
+      else if (passes.length === 1) row.push(passes[0] ? 'Y' : 'N');
+      else row.push(count(passes,function(p){return p})+'/'+passes.length);
+    });
+    rows.push(row);
+  });
+  // Footer
+  var footer = ['Pass%'];
+  treatments.forEach(function(tr) {
+    var trRuns = results.filter(function(r){return r.treatment===tr});
+    footer.push(trRuns.length ? fmtPct(count(trRuns,function(r){return r.acceptance_pass}),trRuns.length) : '-');
+  });
+  rows.push(footer);
+  renderTable(el, headers, rows, aligns);
+}
+
+// ============ TAB 3: Efficiency ============
+function renderEfficiencyTab(el, results) {
+  // Efficiency (successful runs)
+  var h = document.createElement('h3'); h.textContent = 'Efficiency (successful runs only)'; el.appendChild(h);
+  var byT = groupBy(results, function(r){return r.treatment});
+  var headers = ['Treatment','Successes','Tokens/Success','Cost/Success','Turns/Success'];
+  var aligns = ['l','r','r','r','r'];
+  var rows = [];
+  sortedKeys(byT).forEach(function(t) {
+    var succ = byT[t].filter(function(r){return r.acceptance_pass && r.regression_pass});
+    var n = succ.length;
+    if (n === 0) { rows.push([t,'0','N/A','N/A','N/A']); return; }
+    rows.push([t, n, fmtTokens(Math.round(avg(succ,function(r){return r.tokens_total||0}))),
+      fmtCost(avg(succ,function(r){return r.budget_used_usd||0})),
+      fmtFloat(avg(succ,function(r){return r.api_turns||0}))]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // Tier Efficiency
+  h = document.createElement('h3'); h.textContent = 'Efficiency by Tier (successful runs only)'; el.appendChild(h);
+  var byTier = groupBy(results, function(r){return r._tier||'none'});
+  headers = ['Tier','Successes','Total Runs','Success%','Tokens/Success','Cost/Success'];
+  aligns = ['l','r','r','r','r','r'];
+  rows = [];
+  DATA.constants.TIER_ORDER.forEach(function(tk) {
+    var runs = byTier[tk]; if (!runs||!runs.length) return;
+    var succ = runs.filter(function(r){return r.acceptance_pass && r.regression_pass});
+    var ns = succ.length, nt = runs.length;
+    if (ns === 0) { rows.push([DATA.constants.TIER_LABELS[tk]||tk,'0',nt,'0%','N/A','N/A']); return; }
+    rows.push([DATA.constants.TIER_LABELS[tk]||tk, ns, nt, fmtPct(ns,nt),
+      fmtTokens(Math.round(avg(succ,function(r){return r.tokens_total||0}))),
+      fmtCost(avg(succ,function(r){return r.budget_used_usd||0}))]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // Integrity
+  h = document.createElement('h3'); h.textContent = 'Test Integrity'; el.appendChild(h);
+  var byT2 = groupBy(results, function(r){return r.treatment});
+  headers = ['Treatment','Runs','Avg R.Delta','Skip%','Tamper%','Avg Blks'];
+  aligns = ['l','r','r','r','r','r'];
+  rows = [];
+  sortedKeys(byT2).forEach(function(t) {
+    var runs = byT2[t], n = runs.length;
+    rows.push([t, n,
+      (avg(runs,function(r){return r.regression_delta||0})>=0?'+':'')+fmtFloat(avg(runs,function(r){return r.regression_delta||0})),
+      fmtPct(count(runs,function(r){return(r.regression_skipped||0)>0}),n),
+      fmtPct(count(runs,function(r){return r.regression_tests_modified}),n),
+      fmtFloat(avg(runs,function(r){return r.stop_blocks||0}))]);
+  });
+  renderTable(el, headers, rows, aligns);
+}
+
+// ============ TAB 4: BDD Analysis ============
+function renderBddTab(el, results) {
+  // Engagement by Treatment
+  var h = document.createElement('h3'); h.textContent = 'BDD Engagement by Treatment'; el.appendChild(h);
+  var byT = groupBy(results, function(r){return r.treatment});
+  var headers = ['Treatment','Runs','MCP Calls','bdd_test','Hooks','Injected','Failed','Uniq Facets','Edits'];
+  var aligns = ['l','r','r','r','r','r','r','r','r'];
+  var rows = [];
+  sortedKeys(byT).forEach(function(t) {
+    var runs = byT[t], n = runs.length;
+    rows.push([t, n, fmtFloat(avg(runs,function(r){return r.mcp_tool_calls||0})),
+      fmtFloat(avg(runs,function(r){return r.bdd_test_calls||0})),
+      fmtFloat(avg(runs,function(r){return r.hook_begins||0})),
+      fmtFloat(avg(runs,function(r){return r.hook_injections||0})),
+      fmtFloat(avg(runs,function(r){return r.hook_failures||0})),
+      fmtFloat(avg(runs,function(r){return r.hook_unique_facets||0})),
+      fmtFloat(avg(runs,function(r){return r.edit_log_entries||0}))]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // Engagement vs Outcomes
+  h = document.createElement('h3'); h.textContent = 'BDD Engagement Level vs Outcomes'; el.appendChild(h);
+  var byEng = groupBy(results, function(r){return r._engagement||'No BDD'});
+  var engOrder = ['No BDD','Hooks only','MCP only','MCP+Hooks','Agent only','Agent+Hooks','Agent+MCP','Agent+MCP+Hooks'];
+  headers = ['Engagement Level','Runs','Pass%','Tamper%','Avg Tokens','Avg Turns','Avg Cost'];
+  aligns = ['l','r','r','r','r','r','r'];
+  rows = [];
+  engOrder.forEach(function(label) {
+    var runs = byEng[label]; if (!runs||!runs.length) return;
+    var s = bucketStats(runs);
+    rows.push([label, s.n, s.passPct, s.tamperPct, s.avgTokens, s.avgTurns, s.avgCost]);
+  });
+  // Catch extras
+  Object.keys(byEng).forEach(function(label) {
+    if (engOrder.indexOf(label) === -1) {
+      var s = bucketStats(byEng[label]);
+      rows.push([label, s.n, s.passPct, s.tamperPct, s.avgTokens, s.avgTurns, s.avgCost]);
+    }
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // Hook Effectiveness
+  var hookedRuns = results.filter(function(r){return(r.hook_begins||0)>0});
+  if (hookedRuns.length > 0) {
+    h = document.createElement('h3'); h.textContent = 'Hook Injection Effectiveness'; el.appendChild(h);
+    var p = document.createElement('p'); p.className = 'note'; p.textContent = 'Runs with hooks only. Injection rate = injections / hook invocations.'; el.appendChild(p);
+    var byTH = groupBy(hookedRuns, function(r){return r.treatment});
+    headers = ['Treatment','Runs','Pass%','Avg Begins','Avg Inj','Avg Skip','Inj Rate','Avg Facets','Avg Fail'];
+    aligns = ['l','r','r','r','r','r','r','r','r'];
+    rows = [];
+    sortedKeys(byTH).forEach(function(t) {
+      var runs = byTH[t], n = runs.length;
+      var tBegins = sum(runs,function(r){return r.hook_begins||0});
+      var tInj = sum(runs,function(r){return r.hook_injections||0});
+      rows.push([t, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+        fmtFloat(avg(runs,function(r){return r.hook_begins||0})),
+        fmtFloat(avg(runs,function(r){return r.hook_injections||0})),
+        fmtFloat(avg(runs,function(r){return r.hook_skips||0})),
+        tBegins>0?fmtPct(tInj,tBegins):'-',
+        fmtFloat(avg(runs,function(r){return r.hook_unique_facets||0})),
+        fmtFloat(avg(runs,function(r){return r.hook_failures||0}))]);
+    });
+    renderTable(el, headers, rows, aligns);
+  }
+
+  // Hook Variant Comparison
+  if (hookedRuns.length > 0) {
+    var byVar = groupBy(hookedRuns, function(r){return r._hook_variant||'none'});
+    if (Object.keys(byVar).length >= 2) {
+      h = document.createElement('h3'); h.textContent = 'Hook Variant Comparison'; el.appendChild(h);
+      headers = ['Variant','Runs','Pass%','Inj Rate','Avg Facets','Avg Tokens','Avg Cost'];
+      aligns = ['l','r','r','r','r','r','r'];
+      rows = [];
+      sortedKeys(byVar).forEach(function(v) {
+        var runs = byVar[v], n = runs.length;
+        var tBegins = sum(runs,function(r){return r.hook_begins||0});
+        var tInj = sum(runs,function(r){return r.hook_injections||0});
+        rows.push([v, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+          tBegins>0?fmtPct(tInj,tBegins):'-',
+          fmtFloat(avg(runs,function(r){return r.hook_unique_facets||0})),
+          fmtTokens(Math.round(avg(runs,function(r){return r.tokens_total||0}))),
+          fmtCost(avg(runs,function(r){return r.budget_used_usd||0}))]);
+      });
+      renderTable(el, headers, rows, aligns);
+    }
+  }
+
+  // MCP Tool Patterns
+  var mcpRuns = results.filter(function(r){return(r.mcp_tool_calls||0)>0});
+  if (mcpRuns.length > 0) {
+    h = document.createElement('h3'); h.textContent = 'MCP Tool Usage Patterns'; el.appendChild(h);
+    p = document.createElement('p'); p.className = 'note'; p.textContent = 'Runs with MCP tool calls only.'; el.appendChild(p);
+    var byTM = groupBy(mcpRuns, function(r){return r.treatment});
+    headers = ['Treatment','Runs','Pass%','bdd_test','bdd_motiv','bdd_locate','bdd_status','Total MCP'];
+    aligns = ['l','r','r','r','r','r','r','r'];
+    rows = [];
+    sortedKeys(byTM).forEach(function(t) {
+      var runs = byTM[t], n = runs.length;
+      rows.push([t, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+        fmtFloat(avg(runs,function(r){return r.bdd_test_calls||0})),
+        fmtFloat(avg(runs,function(r){return r.bdd_motivation_calls||0})),
+        fmtFloat(avg(runs,function(r){return r.bdd_locate_calls||0})),
+        fmtFloat(avg(runs,function(r){return r.bdd_status_calls||0})),
+        fmtFloat(avg(runs,function(r){return r.mcp_tool_calls||0}))]);
+    });
+    renderTable(el, headers, rows, aligns);
+
+    // MCP Tool Usage Summary
+    h = document.createElement('h3'); h.textContent = 'MCP Tool Usage Summary (across all runs)'; el.appendChild(h);
+    var tools = [
+      {name:'bdd_test', field:'bdd_test_calls'},
+      {name:'bdd_motivation', field:'bdd_motivation_calls'},
+      {name:'bdd_locate', field:'bdd_locate_calls'},
+      {name:'bdd_status', field:'bdd_status_calls'}
+    ];
+    headers = ['MCP Tool','Total Calls','Runs Using','Avg/Run','Pass% (users)','Pass% (non-users)'];
+    aligns = ['l','r','r','r','r','r'];
+    rows = [];
+    tools.forEach(function(tool) {
+      var totalCalls = sum(results,function(r){return r[tool.field]||0});
+      var users = results.filter(function(r){return(r[tool.field]||0)>0});
+      var nonUsers = results.filter(function(r){return(r[tool.field]||0)===0});
+      var nu = users.length;
+      rows.push([tool.name, totalCalls, nu,
+        nu>0?fmtFloat(totalCalls/nu):'0',
+        nu>0?fmtPct(count(users,function(r){return r.acceptance_pass}),nu):'-',
+        nonUsers.length>0?fmtPct(count(nonUsers,function(r){return r.acceptance_pass}),nonUsers.length):'-']);
+    });
+    renderTable(el, headers, rows, aligns);
+  }
+
+  // Agent Outcomes
+  var agentRuns = results.filter(function(r){return r._has_agents});
+  if (agentRuns.length > 0) {
+    h = document.createElement('h3'); h.textContent = 'Agent-Based Treatment Outcomes'; el.appendChild(h);
+    var nonAgentRuns = results.filter(function(r){return !r._has_agents});
+    var byTA = groupBy(agentRuns, function(r){return r.treatment});
+    headers = ['Category','Runs','Pass%','Tamper%','Avg Tokens','Avg Turns','Avg Cost'];
+    aligns = ['l','r','r','r','r','r','r'];
+    rows = [];
+    sortedKeys(byTA).forEach(function(t) {
+      var s = bucketStats(byTA[t]);
+      rows.push(['  '+t, s.n, s.passPct, s.tamperPct, s.avgTokens, s.avgTurns, s.avgCost]);
+    });
+    var sa = bucketStats(agentRuns);
+    rows.push(['All agents', sa.n, sa.passPct, sa.tamperPct, sa.avgTokens, sa.avgTurns, sa.avgCost]);
+    if (nonAgentRuns.length > 0) {
+      var sn = bucketStats(nonAgentRuns);
+      rows.push(['Non-agent', sn.n, sn.passPct, sn.tamperPct, sn.avgTokens, sn.avgTurns, sn.avgCost]);
+    }
+    renderTable(el, headers, rows, aligns);
+  }
+}
+
+// ============ TAB 5: Context ============
+function renderContextTab(el, results) {
+  // Context Volume Analysis
+  var h = document.createElement('h3'); h.textContent = 'Context Volume vs Outcomes'; el.appendChild(h);
+  var p = document.createElement('p'); p.className = 'note'; p.textContent = 'Context volume = hook injections + MCP tool calls'; el.appendChild(p);
+  var volBuckets = {'0 (none)':[],'1-3 (light)':[],'4-7 (moderate)':[],'8-12 (heavy)':[],'13+ (saturated)':[]};
+  results.forEach(function(r) {
+    var vol = r._context_volume || 0;
+    if (vol === 0) volBuckets['0 (none)'].push(r);
+    else if (vol <= 3) volBuckets['1-3 (light)'].push(r);
+    else if (vol <= 7) volBuckets['4-7 (moderate)'].push(r);
+    else if (vol <= 12) volBuckets['8-12 (heavy)'].push(r);
+    else volBuckets['13+ (saturated)'].push(r);
+  });
+  var headers = ['Context Volume','Runs','Pass%','Tamper%','Avg Tokens','Avg Cost'];
+  var aligns = ['l','r','r','r','r','r'];
+  var rows = [];
+  ['0 (none)','1-3 (light)','4-7 (moderate)','8-12 (heavy)','13+ (saturated)'].forEach(function(label) {
+    var runs = volBuckets[label]; if (!runs.length) return;
+    var s = bucketStats(runs);
+    rows.push([label, s.n, s.passPct, s.tamperPct, s.avgTokens, s.avgCost]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // Facet Coverage
+  h = document.createElement('h3'); h.textContent = 'Facet Coverage vs Outcomes'; el.appendChild(h);
+  p = document.createElement('p'); p.className = 'note'; p.textContent = 'Unique facets surfaced by hooks during the run'; el.appendChild(p);
+  var facBuckets = {'0 facets':[],'1-5 facets':[],'6-10 facets':[],'11+ facets':[]};
+  results.forEach(function(r) {
+    var f = r.hook_unique_facets || 0;
+    if (f === 0) facBuckets['0 facets'].push(r);
+    else if (f <= 5) facBuckets['1-5 facets'].push(r);
+    else if (f <= 10) facBuckets['6-10 facets'].push(r);
+    else facBuckets['11+ facets'].push(r);
+  });
+  rows = [];
+  ['0 facets','1-5 facets','6-10 facets','11+ facets'].forEach(function(label) {
+    var runs = facBuckets[label]; if (!runs.length) return;
+    var s = bucketStats(runs);
+    rows.push([label, s.n, s.passPct, s.tamperPct, s.avgTokens, s.avgCost]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // Context vs Pass Scatter (table)
+  var bddRuns = results.filter(function(r){return(r.hook_begins||0)>0||(r.mcp_tool_calls||0)>0});
+  if (bddRuns.length > 0) {
+    h = document.createElement('h3'); h.textContent = 'Per-Run BDD Context Detail'; el.appendChild(h);
+    p = document.createElement('p'); p.className = 'note'; p.textContent = 'All BDD-active runs sorted by context volume (descending).'; el.appendChild(p);
+    headers = ['Task','Treatment','Pass','CtxVol','Inj','MCP','Facets','Variant','Tokens','Cost'];
+    aligns = ['l','l','c','r','r','r','r','l','r','r'];
+    rows = [];
+    bddRuns.sort(function(a,b){return(b._context_volume||0)-(a._context_volume||0)});
+    bddRuns.forEach(function(r) {
+      rows.push([r.task, r.treatment, fmtBool(r.acceptance_pass),
+        r._context_volume||0, r.hook_injections||0, r.mcp_tool_calls||0,
+        r.hook_unique_facets||0, r._hook_variant||'none',
+        fmtTokens(r.tokens_total||0), fmtCost(r.budget_used_usd||0)]);
+    });
+    renderTable(el, headers, rows, aligns);
+  }
+}
+
+// ============ TAB 6: Diagnostics ============
+function renderDiagnosticsTab(el, results) {
+  // Treatment Features
+  var h = document.createElement('h3'); h.textContent = 'Treatment Feature Matrix'; el.appendChild(h);
+  var byT = groupBy(results, function(r){return r.treatment});
+  var headers = ['Treatment','Hooks','MCP','Agents','Skills','Hook Variant','Engagement'];
+  var aligns = ['l','c','c','c','c','l','l'];
+  var rows = [];
+  sortedKeys(byT).forEach(function(t) {
+    var runs = byT[t];
+    var anyH = runs.some(function(r){return r._has_hooks});
+    var anyM = runs.some(function(r){return r._has_mcp});
+    var anyA = runs.some(function(r){return r._has_agents});
+    var anyS = runs.some(function(r){return r._has_skills});
+    var eng;
+    if (anyA && anyM && anyH) eng = 'Agent+MCP+Hooks';
+    else if (anyA && anyM) eng = 'Agent+MCP';
+    else if (anyA && anyH) eng = 'Agent+Hooks';
+    else if (anyA) eng = 'Agent only';
+    else if (anyM && anyH) eng = 'MCP+Hooks';
+    else if (anyM) eng = 'MCP only';
+    else if (anyH) eng = 'Hooks only';
+    else eng = 'No BDD';
+    var variant = DATA.constants.HOOK_VARIANTS[t] || (anyH ? 'standard' : 'none');
+    rows.push([t, anyH?'Y':'-', anyM?'Y':'-', anyA?'Y':'-', anyS?'Y':'-', variant, eng]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // Reliability
+  h = document.createElement('h3'); h.textContent = 'Tool & Hook Reliability by Treatment'; el.appendChild(h);
+  headers = ['Treatment','Runs','Tool Errs','Hook Starts','Hook Fails','Fail%','Top Error'];
+  aligns = ['l','r','r','r','r','r','l'];
+  rows = [];
+  sortedKeys(byT).forEach(function(t) {
+    var runs = byT[t], n = runs.length;
+    var tStarts = sum(runs,function(r){return r.hook_begins||0});
+    var tFails = sum(runs,function(r){return r.hook_failures||0});
+    var errCounts = {};
+    runs.forEach(function(r) {
+      var types = r.tool_error_types || {};
+      Object.keys(types).forEach(function(msg){errCounts[msg]=(errCounts[msg]||0)+types[msg]});
+    });
+    var topErr = '-';
+    var maxC = 0;
+    Object.keys(errCounts).forEach(function(msg){if(errCounts[msg]>maxC){maxC=errCounts[msg];topErr=msg}});
+    if (topErr.length > 40) topErr = topErr.substring(0,37)+'...';
+    rows.push([t, n, fmtFloat(avg(runs,function(r){return r.tool_errors||0})),
+      fmtFloat(avg(runs,function(r){return r.hook_begins||0})),
+      fmtFloat(avg(runs,function(r){return r.hook_failures||0})),
+      tStarts>0?fmtPct(tFails,tStarts):'-', topErr]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // BDD Diagnosis
+  h = document.createElement('h3'); h.textContent = 'BDD Diagnosis: Where Is BDD Failing?'; el.appendChild(h);
+
+  // High context
+  var hcFails = results.filter(function(r){return(r._context_volume||0)>=5 && !r.acceptance_pass});
+  var hcPasses = results.filter(function(r){return(r._context_volume||0)>=5 && r.acceptance_pass});
+  var div = document.createElement('div'); div.className = 'diag-section';
+  var s = document.createElement('strong'); s.textContent = 'High context (5+ interactions) outcomes:'; div.appendChild(s);
+  var totalHC = hcFails.length + hcPasses.length;
+  if (totalHC > 0) {
+    var mp = document.createElement('p'); mp.className = 'metric';
+    mp.textContent = 'Pass: ' + hcPasses.length + '/' + totalHC + ' (' + Math.round(hcPasses.length/totalHC*100) + '%)';
+    div.appendChild(mp);
+    if (hcFails.length > 0) {
+      var ftSet = {}; hcFails.forEach(function(r){ftSet[r.treatment]=1});
+      mp = document.createElement('p'); mp.className = 'metric';
+      mp.textContent = 'Failed treatments: ' + Object.keys(ftSet).sort().join(', ');
+      div.appendChild(mp);
+    }
+  } else {
+    var mp = document.createElement('p'); mp.className = 'metric'; mp.textContent = 'No runs with high BDD context volume.'; div.appendChild(mp);
+  }
+  el.appendChild(div);
+
+  // Wasted hooks
+  var wasted = results.filter(function(r){return(r.hook_begins||0)>0 && (r.hook_injections||0)===0});
+  if (wasted.length > 0) {
+    div = document.createElement('div'); div.className = 'diag-section';
+    s = document.createElement('strong'); s.textContent = 'Hooks fired but zero injections (wasted hooks):'; div.appendChild(s);
+    var ul = document.createElement('ul');
+    wasted.forEach(function(r) {
+      var li = document.createElement('li');
+      li.textContent = r.task + ' / ' + r.treatment + ': ' + (r.hook_begins||0) + ' begins, ' + (r.hook_skips||0) + ' skips, ' + (r.hook_failures||0) + ' failures';
+      ul.appendChild(li);
+    });
+    div.appendChild(ul); el.appendChild(div);
+  }
+
+  // MCP available but unused
+  var hooksNoMcp = DATA.constants.HOOKS_NO_MCP_TREATMENTS || [];
+  var mcpUnused = results.filter(function(r){return(r.mcp_tool_calls||0)===0 && (r.hook_begins||0)>0 && hooksNoMcp.indexOf(r.treatment)===-1});
+  if (mcpUnused.length > 0) {
+    div = document.createElement('div'); div.className = 'diag-section';
+    s = document.createElement('strong'); s.textContent = 'BDD treatments where agent never called MCP tools:'; div.appendChild(s);
+    var ul = document.createElement('ul');
+    mcpUnused.forEach(function(r){var li = document.createElement('li'); li.textContent = r.task+' / '+r.treatment; ul.appendChild(li)});
+    div.appendChild(ul); el.appendChild(div);
+  }
+
+  // Hook failures
+  var hookFails = results.filter(function(r){return(r.hook_failures||0)>0});
+  if (hookFails.length > 0) {
+    div = document.createElement('div'); div.className = 'diag-section';
+    s = document.createElement('strong'); s.textContent = 'Runs with hook failures:'; div.appendChild(s);
+    var ul = document.createElement('ul');
+    hookFails.forEach(function(r){var li = document.createElement('li'); li.textContent = r.task+' / '+r.treatment+': '+r.hook_failures+' failures out of '+r.hook_begins+' begins'; ul.appendChild(li)});
+    div.appendChild(ul); el.appendChild(div);
+  }
+
+  // BDD tamper
+  var bddTamper = results.filter(function(r){return((r.hook_injections||0)>0||(r.mcp_tool_calls||0)>0)&&r.regression_tests_modified});
+  if (bddTamper.length > 0) {
+    div = document.createElement('div'); div.className = 'diag-section';
+    s = document.createElement('strong'); s.textContent = 'BDD context provided but agent tampered with tests:'; div.appendChild(s);
+    var ul = document.createElement('ul');
+    bddTamper.forEach(function(r){var li=document.createElement('li');li.textContent=r.task+' / '+r.treatment+': ctx_vol='+(r._context_volume||0)+', pass='+fmtBool(r.acceptance_pass);ul.appendChild(li)});
+    div.appendChild(ul); el.appendChild(div);
+  }
+
+  // Cost effectiveness
+  var bddR = results.filter(function(r){return(r.hook_begins||0)>0||(r.mcp_tool_calls||0)>0});
+  var noBddR = results.filter(function(r){return(r.hook_begins||0)===0&&(r.mcp_tool_calls||0)===0&&!r._has_agents});
+  if (bddR.length > 0 && noBddR.length > 0) {
+    div = document.createElement('div'); div.className = 'diag-section';
+    s = document.createElement('strong'); s.textContent = 'BDD cost-effectiveness summary:'; div.appendChild(s);
+    var bddAvgCost = avg(bddR,function(r){return r.budget_used_usd||0});
+    var noBddAvgCost = avg(noBddR,function(r){return r.budget_used_usd||0});
+    var bddPass = count(bddR,function(r){return r.acceptance_pass})/bddR.length*100;
+    var noBddPass = count(noBddR,function(r){return r.acceptance_pass})/noBddR.length*100;
+    var mp = document.createElement('p'); mp.className='metric';
+    mp.textContent='BDD runs: '+bddR.length+' runs, '+Math.round(bddPass)+'% pass, avg cost '+fmtCost(bddAvgCost); div.appendChild(mp);
+    mp = document.createElement('p'); mp.className='metric';
+    mp.textContent='No-BDD runs: '+noBddR.length+' runs, '+Math.round(noBddPass)+'% pass, avg cost '+fmtCost(noBddAvgCost); div.appendChild(mp);
+    if (noBddAvgCost > 0) {
+      var overhead = (bddAvgCost - noBddAvgCost) / noBddAvgCost * 100;
+      mp = document.createElement('p'); mp.className='metric'; mp.textContent='Cost overhead: '+(overhead>=0?'+':'')+Math.round(overhead)+'%'; div.appendChild(mp);
+    }
+    var deltaPp = bddPass - noBddPass;
+    mp = document.createElement('p'); mp.className='metric'; mp.textContent='Pass rate delta: '+(deltaPp>=0?'+':'')+Math.round(deltaPp)+'pp'; div.appendChild(mp);
+    el.appendChild(div);
+  }
+}
+
+// ============ TAB 7: Detail ============
+function renderDetailTab(el, results) {
+  var h = document.createElement('h3'); h.textContent = 'Per-Run Detail (' + results.length + ' runs)'; el.appendChild(h);
+  var headers = ['Task','Treatment','Pass','R.Dlt','Blks','BDD','MCP','Inj','Facets','Tokens','Turns','Time','Cost'];
+  var aligns = ['l','l','r','r','r','c','r','r','r','r','r','r','r'];
+  var rows = [];
+  results.forEach(function(r) {
+    rows.push([r.task, r.treatment, fmtBool(r.acceptance_pass),
+      fmtDelta(r.regression_delta||0), r.stop_blocks||0,
+      r._engagement_tag||'-', r.mcp_tool_calls||0, r.hook_injections||0,
+      r.hook_unique_facets||0, fmtTokens(r.tokens_total||0),
+      r.api_turns||0, (r.wall_time_seconds||0)+'s',
+      fmtCost(r.budget_used_usd||0)]);
+  });
+  renderTable(el, headers, rows, aligns);
+}
+
+// ============ TAB 8: Sequences ============
+function renderSequencesTab(el, seqs) {
+  if (!seqs.length) { el.textContent = 'No sequence results.'; return; }
+
+  var h = document.createElement('h3'); h.textContent = 'Sequence Summary'; el.appendChild(h);
+  var headers = ['Sequence','Treatment','Steps','All Pass','Cumul Pass','Passed','Failed','Tokens','Time','Cost','Regressions'];
+  var aligns = ['l','l','r','c','c','r','r','r','r','r','r'];
+  var rows = [];
+  seqs.forEach(function(r) {
+    var agg = r.aggregate || {};
+    rows.push([r.sequence, r.treatment, r.num_steps||0,
+      fmtBool(agg.all_steps_pass||false), fmtBool(agg.cumulative_pass_at_every_step||false),
+      agg.steps_passed||0, agg.steps_failed||0,
+      fmtTokens(agg.total_tokens||0), (agg.total_wall_time_seconds||0)+'s',
+      fmtCost(agg.total_budget_used_usd||0), agg.prior_step_regressions||0]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // Step Detail
+  h = document.createElement('h3'); h.textContent = 'Sequence Step Detail'; el.appendChild(h);
+  headers = ['Sequence','Treatment','Step','Task','Accept','Regress','Prior OK','Cumul','Tokens','Time','Cost'];
+  aligns = ['l','l','r','l','c','c','c','c','r','r','r'];
+  rows = [];
+  seqs.forEach(function(r) {
+    (r.steps||[]).forEach(function(step) {
+      var priorP = step.prior_steps_passed||0;
+      var priorF = step.prior_steps_failed||0;
+      rows.push([r.sequence, r.treatment, step.step, step.task,
+        fmtBool(step.acceptance_pass||false), fmtBool(step.regression_pass||false),
+        priorP+'/'+(priorP+priorF), fmtBool(step.cumulative_pass||false),
+        fmtTokens(step.tokens_total||0), (step.wall_time_seconds||0)+'s',
+        fmtCost(step.budget_used_usd||0)]);
+    });
+  });
+  renderTable(el, headers, rows, aligns);
+}
+
+// === Init ===
+(function() {
+  // Restore filters from localStorage
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem('bdd-bench-filters') || '{}'); } catch(e) {}
+  if (saved.treatment) document.getElementById('f-treatment').value = saved.treatment;
+  if (saved.task) document.getElementById('f-task').value = saved.task;
+  if (saved.start) document.getElementById('f-start').value = saved.start;
+  if (saved.end) document.getElementById('f-end').value = saved.end;
+  if (saved.activeTab) state.activeTab = saved.activeTab;
+
+  // Wire tabs
+  document.querySelectorAll('.tab-bar button').forEach(function(btn) {
+    btn.addEventListener('click', function() { switchTab(btn.dataset.tab); saveFilters(); });
+  });
+
+  // Wire filter inputs with debounce
+  var debounceTimer;
+  var filterEls = ['f-treatment','f-task','f-start','f-end'];
+  filterEls.forEach(function(id) {
+    document.getElementById(id).addEventListener('input', function() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function() { getFilteredResults(); saveFilters(); }, 200);
+    });
+  });
+
+  function saveFilters() {
+    var obj = {
+      treatment: document.getElementById('f-treatment').value,
+      task: document.getElementById('f-task').value,
+      start: document.getElementById('f-start').value,
+      end: document.getElementById('f-end').value,
+      activeTab: state.activeTab
+    };
+    try { localStorage.setItem('bdd-bench-filters', JSON.stringify(obj)); } catch(e) {}
+  }
+
+  // Restore active tab
+  switchTab(state.activeTab);
+
+  // Initial filter
+  getFilteredResults();
+})();
+</script>
+</body>
+</html>"""
+
+
+# ============================================================
 # CSV Export
 # ============================================================
 
@@ -1493,19 +2488,27 @@ def export_csv(results: list[dict], output_path: Path):
 
 def parse_args(argv: list[str]) -> dict:
     """Parse CLI arguments."""
-    opts = {"csv": False, "since": ""}
+    opts = {"csv": False, "since": "", "markdown": False, "html": False}
     i = 0
     while i < len(argv):
         if argv[i] == "--csv":
             opts["csv"] = True
             i += 1
+        elif argv[i] == "--markdown":
+            opts["markdown"] = True
+            i += 1
+        elif argv[i] == "--html":
+            opts["html"] = True
+            i += 1
         elif argv[i] == "--since" and i + 1 < len(argv):
             opts["since"] = argv[i + 1]
             i += 2
         else:
-            print(f"Usage: analyze.py [--since TIMESTAMP] [--csv]")
-            print(f"  --since  Only include results at or after TIMESTAMP (e.g. 20260217T170000Z)")
-            print(f"  --csv    Export results to CSV")
+            print(f"Usage: analyze.py [--since TIMESTAMP] [--markdown] [--html] [--csv]")
+            print(f"  --since     Only include results at or after TIMESTAMP (e.g. 20260217T170000Z)")
+            print(f"  --markdown  Print markdown tables to stdout (legacy)")
+            print(f"  --html      Write interactive HTML report (default)")
+            print(f"  --csv       Export results to CSV")
             sys.exit(2)
     return opts
 
@@ -1534,41 +2537,54 @@ def main():
     since_note = f", since {since}" if since else ""
     print(f"Loaded {total} result(s) from {results_dir} ({len(results)} task, {len(seq_results)} sequence{rl_note}{since_note})\n")
 
-    if results:
-        # --- Compact summaries first ---
-        print_summary_table(results)
+    # Enrich results with computed classification fields
+    enrich_results(results)
+
+    # Determine output mode: --markdown for legacy stdout, HTML by default
+    do_markdown = opts["markdown"]
+    do_html = opts["html"] or not do_markdown
+
+    if do_markdown:
+        if results:
+            # --- Compact summaries first ---
+            print_summary_table(results)
+            if seq_results:
+                print_sequence_treatment_summary(seq_results)
+            print_task_summary(results)
+            print_tier_summary(results)
+            print_task_x_treatment_matrix(results)
+            print_task_difficulty(results)
+
+            # --- Efficiency & integrity ---
+            print_efficiency_table(results)
+            print_tier_efficiency(results)
+            print_integrity_table(results)
+
+            # --- BDD engagement ---
+            print_engagement_table(results)
+            print_engagement_vs_outcomes(results)
+            print_hook_effectiveness(results)
+            print_hook_variant_comparison(results)
+            print_mcp_tool_patterns(results)
+            print_agent_outcomes(results)
+            print_context_volume_analysis(results)
+            print_context_vs_pass_scatter(results)
+
+            # --- Detailed / long tables ---
+            print_reliability_table(results)
+            print_treatment_features(results)
+            print_bdd_diagnosis(results)
+            print_detail_table(results)
+
+        # --- Sequence tables ---
         if seq_results:
-            print_sequence_treatment_summary(seq_results)
-        print_task_summary(results)
-        print_tier_summary(results)
-        print_task_x_treatment_matrix(results)
-        print_task_difficulty(results)
+            print_sequence_summary(seq_results)
+            print_sequence_step_detail(seq_results)
 
-        # --- Efficiency & integrity ---
-        print_efficiency_table(results)
-        print_tier_efficiency(results)
-        print_integrity_table(results)
-
-        # --- BDD engagement ---
-        print_engagement_table(results)
-        print_engagement_vs_outcomes(results)
-        print_hook_effectiveness(results)
-        print_hook_variant_comparison(results)
-        print_mcp_tool_patterns(results)
-        print_agent_outcomes(results)
-        print_context_volume_analysis(results)
-        print_context_vs_pass_scatter(results)
-
-        # --- Detailed / long tables ---
-        print_reliability_table(results)
-        print_treatment_features(results)
-        print_bdd_diagnosis(results)
-        print_detail_table(results)
-
-    # --- Sequence tables ---
-    if seq_results:
-        print_sequence_summary(seq_results)
-        print_sequence_step_detail(seq_results)
+    if do_html:
+        html_path = results_dir / "report.html"
+        generate_html_report(results, seq_results, html_path,
+                             since=since, num_rate_limited=num_rate_limited)
 
     # Export CSV if requested
     if opts["csv"]:
