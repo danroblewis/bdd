@@ -23,7 +23,7 @@ def fmt_tokens(n: int) -> str:
 
 
 def fmt_bool(b: bool) -> str:
-    return "YES" if b else "NO "
+    return "YES" if b else "NO"
 
 
 def fmt_cost(c: float) -> str:
@@ -36,40 +36,47 @@ def fmt_delta(d: int) -> str:
     return str(d)
 
 
+def md_table(headers: list[str], rows: list[list[str]], aligns: list[str] | None = None):
+    """Print a markdown table. aligns: 'l', 'r', or 'c' per column."""
+    if not aligns:
+        aligns = ["l"] * len(headers)
+    sep_cells = []
+    for a in aligns:
+        if a == "r":
+            sep_cells.append("---:")
+        elif a == "c":
+            sep_cells.append(":---:")
+        else:
+            sep_cells.append("---")
+    print("| " + " | ".join(headers) + " |")
+    print("| " + " | ".join(sep_cells) + " |")
+    for row in rows:
+        print("| " + " | ".join(row) + " |")
+
+
 def print_detail_table(results: list[dict]):
     """Print detailed per-run results table."""
     if not results:
         print("No results found.")
         return
 
-    # Header
-    header = (
-        f"{'Task':<25} | {'Treatment':<14} | {'Pass':>4} | {'R.Skip':>6} | {'R.Dlt':>5} | {'Blks':>4} | "
-        f"{'Tokens':>7} | {'Turns':>5} | {'Time':>6} | {'Cost':>6}"
-    )
-    sep = "-" * len(header)
-    print(sep)
-    print(header)
-    print(sep)
-
+    headers = ["Task", "Treatment", "Pass", "R.Skip", "R.Dlt", "Blks", "Tokens", "Turns", "Time", "Cost"]
+    aligns = ["l", "l", "r", "r", "r", "r", "r", "r", "r", "r"]
+    rows = []
     for r in results:
-        task = r["task"]
-        treatment = r["treatment"]
-        accept = fmt_bool(r["acceptance_pass"])
-        r_skip = str(r.get("regression_skipped", 0))
-        r_delta = fmt_delta(r.get("regression_delta", 0))
-        blks = str(r.get("stop_blocks", 0))
-        tokens = fmt_tokens(r["tokens_total"])
-        turns = str(r["api_turns"])
-        time_s = f"{r['wall_time_seconds']}s"
-        cost = fmt_cost(r["budget_used_usd"])
-
-        print(
-            f"{task:<25} | {treatment:<14} | {accept:>4} | {r_skip:>6} | {r_delta:>5} | {blks:>4} | "
-            f"{tokens:>7} | {turns:>5} | {time_s:>6} | {cost:>6}"
-        )
-
-    print(sep)
+        rows.append([
+            r["task"],
+            r["treatment"],
+            fmt_bool(r["acceptance_pass"]),
+            str(r.get("regression_skipped", 0)),
+            fmt_delta(r.get("regression_delta", 0)),
+            str(r.get("stop_blocks", 0)),
+            fmt_tokens(r["tokens_total"]),
+            str(r["api_turns"]),
+            f"{r['wall_time_seconds']}s",
+            fmt_cost(r["budget_used_usd"]),
+        ])
+    md_table(headers, rows, aligns)
 
 
 def print_summary_table(results: list[dict]):
@@ -77,22 +84,16 @@ def print_summary_table(results: list[dict]):
     if not results:
         return
 
-    # Group by treatment
     by_treatment = defaultdict(list)
     for r in results:
         by_treatment[r["treatment"]].append(r)
 
     print()
-    print("=== Summary by Treatment ===")
-    header = (
-        f"{'Treatment':<14} | {'Runs':>4} | {'Pass%':>5} | {'Avg Blks':>8} | {'Skip%':>5} | {'Tamper%':>7} | "
-        f"{'Avg Tokens':>10} | {'Avg Turns':>9} | {'Avg Time':>8} | {'Avg Cost':>8}"
-    )
-    sep = "-" * len(header)
-    print(sep)
-    print(header)
-    print(sep)
-
+    print("### Summary by Treatment")
+    print()
+    headers = ["Treatment", "Runs", "Pass%", "Avg Blks", "Skip%", "Tamper%", "Avg Tokens", "Avg Turns", "Avg Time", "Avg Cost"]
+    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r", "r"]
+    rows = []
     for treatment in sorted(by_treatment.keys()):
         runs = by_treatment[treatment]
         n = len(runs)
@@ -105,12 +106,19 @@ def print_summary_table(results: list[dict]):
         avg_time = sum(r["wall_time_seconds"] for r in runs) / n
         avg_cost = sum(r["budget_used_usd"] for r in runs) / n
 
-        print(
-            f"{treatment:<14} | {n:>4} | {pass_rate:>4.0f}% | {avg_blks:>8.1f} | {skip_pct:>4.0f}% | {tamper_pct:>6.0f}% | "
-            f"{fmt_tokens(int(avg_tokens)):>10} | {avg_turns:>9.1f} | {avg_time:>7.0f}s | {fmt_cost(avg_cost):>8}"
-        )
-
-    print(sep)
+        rows.append([
+            treatment,
+            str(n),
+            f"{pass_rate:.0f}%",
+            f"{avg_blks:.1f}",
+            f"{skip_pct:.0f}%",
+            f"{tamper_pct:.0f}%",
+            fmt_tokens(int(avg_tokens)),
+            f"{avg_turns:.1f}",
+            f"{avg_time:.0f}s",
+            fmt_cost(avg_cost),
+        ])
+    md_table(headers, rows, aligns)
 
 
 def print_task_summary(results: list[dict]):
@@ -123,13 +131,11 @@ def print_task_summary(results: list[dict]):
         by_task[r["task"]].append(r)
 
     print()
-    print("=== Summary by Task ===")
-    header = f"{'Task':<25} | {'Runs':>4} | {'Pass%':>5} | {'Avg Tokens':>10} | {'Avg Turns':>9} | {'Avg Cost':>8}"
-    sep = "-" * len(header)
-    print(sep)
-    print(header)
-    print(sep)
-
+    print("### Summary by Task")
+    print()
+    headers = ["Task", "Runs", "Pass%", "Avg Tokens", "Avg Turns", "Avg Cost"]
+    aligns = ["l", "r", "r", "r", "r", "r"]
+    rows = []
     for task in sorted(by_task.keys()):
         runs = by_task[task]
         n = len(runs)
@@ -138,12 +144,15 @@ def print_task_summary(results: list[dict]):
         avg_turns = sum(r["api_turns"] for r in runs) / n
         avg_cost = sum(r["budget_used_usd"] for r in runs) / n
 
-        print(
-            f"{task:<25} | {n:>4} | {pass_rate:>4.0f}% | "
-            f"{fmt_tokens(int(avg_tokens)):>10} | {avg_turns:>9.1f} | {fmt_cost(avg_cost):>8}"
-        )
-
-    print(sep)
+        rows.append([
+            task,
+            str(n),
+            f"{pass_rate:.0f}%",
+            fmt_tokens(int(avg_tokens)),
+            f"{avg_turns:.1f}",
+            fmt_cost(avg_cost),
+        ])
+    md_table(headers, rows, aligns)
 
 
 def print_efficiency_table(results: list[dict]):
@@ -156,30 +165,31 @@ def print_efficiency_table(results: list[dict]):
         by_treatment[r["treatment"]].append(r)
 
     print()
-    print("=== Efficiency (successful runs only) ===")
-    header = f"{'Treatment':<14} | {'Successes':>9} | {'Tokens/Success':>14} | {'Cost/Success':>12} | {'Turns/Success':>13}"
-    sep = "-" * len(header)
-    print(sep)
-    print(header)
-    print(sep)
-
+    print("### Efficiency (successful runs only)")
+    print()
+    headers = ["Treatment", "Successes", "Tokens/Success", "Cost/Success", "Turns/Success"]
+    aligns = ["l", "r", "r", "r", "r"]
+    rows = []
     for treatment in sorted(by_treatment.keys()):
         runs = by_treatment[treatment]
         successes = [r for r in runs if r["acceptance_pass"] and r["regression_pass"]]
         n = len(successes)
         if n == 0:
-            print(f"{treatment:<14} | {0:>9} | {'N/A':>14} | {'N/A':>12} | {'N/A':>13}")
+            rows.append([treatment, "0", "N/A", "N/A", "N/A"])
             continue
 
         avg_tokens = sum(r["tokens_total"] for r in successes) / n
         avg_cost = sum(r["budget_used_usd"] for r in successes) / n
         avg_turns = sum(r["api_turns"] for r in successes) / n
 
-        print(
-            f"{treatment:<14} | {n:>9} | {fmt_tokens(int(avg_tokens)):>14} | {fmt_cost(avg_cost):>12} | {avg_turns:>13.1f}"
-        )
-
-    print(sep)
+        rows.append([
+            treatment,
+            str(n),
+            fmt_tokens(int(avg_tokens)),
+            fmt_cost(avg_cost),
+            f"{avg_turns:.1f}",
+        ])
+    md_table(headers, rows, aligns)
 
 
 def print_integrity_table(results: list[dict]):
@@ -192,13 +202,11 @@ def print_integrity_table(results: list[dict]):
         by_treatment[r["treatment"]].append(r)
 
     print()
-    print("=== Test Integrity ===")
-    header = f"{'Treatment':<14} | {'Runs':>4} | {'Avg R.Delta':>11} | {'Skip%':>5} | {'Tamper%':>7} | {'Avg Blks':>8}"
-    sep = "-" * len(header)
-    print(sep)
-    print(header)
-    print(sep)
-
+    print("### Test Integrity")
+    print()
+    headers = ["Treatment", "Runs", "Avg R.Delta", "Skip%", "Tamper%", "Avg Blks"]
+    aligns = ["l", "r", "r", "r", "r", "r"]
+    rows = []
     for treatment in sorted(by_treatment.keys()):
         runs = by_treatment[treatment]
         n = len(runs)
@@ -207,11 +215,15 @@ def print_integrity_table(results: list[dict]):
         tamper_pct = sum(1 for r in runs if r.get("regression_tests_modified")) / n * 100
         avg_blks = sum(r.get("stop_blocks", 0) for r in runs) / n
 
-        print(
-            f"{treatment:<14} | {n:>4} | {avg_delta:>+10.1f} | {skip_pct:>4.0f}% | {tamper_pct:>6.0f}% | {avg_blks:>8.1f}"
-        )
-
-    print(sep)
+        rows.append([
+            treatment,
+            str(n),
+            f"{avg_delta:+.1f}",
+            f"{skip_pct:.0f}%",
+            f"{tamper_pct:.0f}%",
+            f"{avg_blks:.1f}",
+        ])
+    md_table(headers, rows, aligns)
 
 
 def export_csv(results: list[dict], output_path: Path):

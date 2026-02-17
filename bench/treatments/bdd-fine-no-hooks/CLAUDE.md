@@ -27,10 +27,11 @@ A CLI task management tool built with Python.
 ## Workflow
 
 1. **Read the task prompt** to understand what to implement
-2. **Read source files** — the hook automatically shows which catalog entries relate to the code you're reading
-3. **Implement the change** across all layers (model → store → CLI → display → tests) — when you write or edit source files, the hook automatically shows which catalog facets you just affected and logs the association to `.bdd/edit_log.json`
+2. **Use `bdd_motivation(file_path)`** before editing a source file to understand which catalog entries it implements — this tells you WHY the code exists and what behavior to preserve
+3. **Implement the change** across all layers (model → store → CLI → display → tests)
 4. **Run `bdd_test()`** to execute tests, rebuild the index, and update catalog statuses
-5. Optionally use `bdd_add` / `bdd_link` to register new work in the catalog
+5. **Use `bdd_locate(node_id)`** to find implementation locations for specific catalog facets
+6. Optionally use `bdd_add` / `bdd_link` to register new work in the catalog
 
 ## Completion Checklist
 
@@ -45,6 +46,7 @@ A CLI task management tool built with Python.
 | Tool | Description |
 |------|-------------|
 | `bdd_status(check?)` | Catalog summary: counts, progress, unsatisfied expectations. Pass `check="all"` for health diagnostics. |
+| `bdd_motivation(file_path)` | **Use this before editing a file.** Shows which catalog facets map to lines in the given source file — helps you understand what behavior to preserve. |
 | `bdd_locate(node_id)` | Find implementation files and line ranges for a facet or expectation. |
 | `bdd_test()` | Run full test suite, parse results + coverage, rebuild index, update facet statuses. |
 | `bdd_add(type, text, parent?, ...)` | Add a goal, expectation, or facet to the catalog. |

@@ -1,0 +1,8 @@
+name: "bdd-fine-no-hooks"
+description: "Fine-grained BDD index (coverage-json) but no automatic hooks — agent must use MCP tools manually"
+claude_md: "CLAUDE.md"
+context_files: []
+mcp_config: null
+settings_overlay: null
+pre_prompt: null
+setup_script: "setup.sh"

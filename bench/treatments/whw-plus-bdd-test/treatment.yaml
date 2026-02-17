@@ -1,0 +1,9 @@
+name: "whw-plus-bdd-test"
+description: "Why/How/What context plus bdd_test MCP tool (no hooks)"
+claude_md: "CLAUDE.md"
+context_files:
+  - "context.md"
+mcp_config: null
+settings_overlay: null
+pre_prompt: null
+setup_script: "setup.sh"

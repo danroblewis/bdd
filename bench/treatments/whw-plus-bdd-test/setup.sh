@@ -1,7 +1,7 @@
 #!/bin/bash
-# Setup script for the full-bdd treatment
-# Bootstraps the complete BDD system: catalog, config, MCP server, hooks,
-# and pre-builds the index so the PostToolUse hook injects motivation context.
+# Setup script for whw-plus-bdd-test treatment
+# Creates catalog + bdd.json + .mcp.json with ONLY bdd_test tool exposed.
+# No hooks, no extra MCP tools — just bdd_test on top of why-how-what context.
 
 set -euo pipefail
 
@@ -9,11 +9,9 @@ cd "$WORKSPACE"
 
 BENCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BDD_SERVER="$(cd "$(dirname "$0")/../../.." && pwd)/bdd_server.py"
-HOOK_SCRIPT="$(cd "$(dirname "$0")/../../.." && pwd)/framework/hooks/inject-context.sh"
-WRITE_HOOK_SCRIPT="$(cd "$(dirname "$0")/../../.." && pwd)/framework/hooks/inject-write-context.sh"
 VENV_PYTHON="$BENCH_ROOT/.venv/bin/python3"
 
-# --- catalog.json (enriched descriptions of existing functionality) ---
+# --- catalog.json (needed by bdd_test to update facet statuses) ---
 cat > catalog.json << 'CATALOG_EOF'
 {
   "version": 1,
@@ -190,8 +188,7 @@ cat > catalog.json << 'CATALOG_EOF'
 }
 CATALOG_EOF
 
-# --- bdd.json (test config — cobertura coverage for index building) ---
-# Uses the bench venv python which has pytest-cov installed
+# --- bdd.json (test config — cobertura coverage for bdd_test) ---
 cat > bdd.json << EOF
 {
   "test_command": "$VENV_PYTHON -m pytest tests/ -v --tb=short --junitxml=.bdd/results.xml --cov=src/taskboard --cov-report=xml:.bdd/coverage.xml",
@@ -202,54 +199,24 @@ cat > bdd.json << EOF
 }
 EOF
 
-# --- .mcp.json (registers bdd_server.py with excluded tools) ---
+# --- .mcp.json (registers bdd_server.py with ONLY bdd_test exposed) ---
+# Exclude all tools except bdd_test
 cat > .mcp.json << EOF
 {
   "mcpServers": {
     "bdd": {
       "command": "$VENV_PYTHON",
-      "args": ["$BDD_SERVER", "$WORKSPACE", "--exclude-tools", "bdd_next,bdd_motivation,bdd_tree"]
+      "args": ["$BDD_SERVER", "$WORKSPACE", "--exclude-tools", "bdd_next,bdd_motivation,bdd_tree,bdd_status,bdd_locate,bdd_add,bdd_link,bdd_check"]
     }
   }
 }
 EOF
 
-# --- .claude/settings.json (merge PostToolUse hooks into existing settings) ---
-mkdir -p .claude/hooks
-cp "$HOOK_SCRIPT" .claude/hooks/inject-context.sh
-cp "$WRITE_HOOK_SCRIPT" .claude/hooks/inject-write-context.sh
-chmod +x .claude/hooks/inject-context.sh .claude/hooks/inject-write-context.sh
-
-python3 -c "
-import json
-with open('.claude/settings.json') as f: s = json.load(f)
-hooks = s.setdefault('hooks', {})
-hooks.setdefault('PostToolUse', []).extend([
-    {
-        'matcher': 'Read',
-        'hooks': [{
-            'type': 'command',
-            'command': '$VENV_PYTHON \"\$CLAUDE_PROJECT_DIR/.claude/hooks/inject-context.sh\" 2>/dev/null || true'
-        }]
-    },
-    {
-        'matcher': 'Edit|Write',
-        'hooks': [{
-            'type': 'command',
-            'command': '$VENV_PYTHON \"\$CLAUDE_PROJECT_DIR/.claude/hooks/inject-write-context.sh\" 2>/dev/null || true'
-        }]
-    }
-])
-with open('.claude/settings.json', 'w') as f: json.dump(s, f, indent=2)
-"
-
 # --- Initialize .bdd directory ---
 mkdir -p .bdd
 echo "$VENV_PYTHON" > .bdd/venv_python
 
-# --- Pre-build the index by running tests + coverage ---
-# Uses the CLI test command which runs pytest, parses results/coverage, and builds .bdd/index.json
-# This populates the index so the PostToolUse hook can inject motivation context on every Read
+# --- Pre-build the index ---
 "$VENV_PYTHON" "$BDD_SERVER" "$WORKSPACE" test >/dev/null 2>&1 || true
 
-echo "BDD system initialized: catalog.json, bdd.json, .mcp.json, hooks, index"
+echo "whw-plus-bdd-test initialized: catalog.json, bdd.json, .mcp.json (bdd_test only)"

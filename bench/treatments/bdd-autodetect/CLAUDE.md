@@ -20,7 +20,7 @@ A CLI task management tool built with Python.
 
 ### Patterns
 
-- **CLI dispatch:** `build_parser()` → `args = parser.parse_args(argv)` → `commands = {"add": cmd_add, ...}` → `return commands[args.command](args, store)`
+- **CLI dispatch:** `build_parser()` -> `args = parser.parse_args(argv)` -> `commands = {"add": cmd_add, ...}` -> `return commands[args.command](args, store)`
 - **Store CRUD:** Every method does `_load()` with LOCK_SH or `_save()` with LOCK_EX. JSON format: `{"next_id": int, "tasks": [dicts]}`
 - **Adding a new command:** Add subparser in `build_parser()`, add `cmd_X(args, store)` handler, add to `commands` dict in `main()`
 
@@ -28,7 +28,7 @@ A CLI task management tool built with Python.
 
 1. **Read the task prompt** to understand what to implement
 2. **Read source files** — the hook automatically shows which catalog entries relate to the code you're reading
-3. **Implement the change** across all layers (model → store → CLI → display → tests) — when you write or edit source files, the hook automatically shows which catalog facets you just affected and logs the association to `.bdd/edit_log.json`
+3. **Implement the change** across all layers (model -> store -> CLI -> display -> tests) — when you write or edit source files, the system automatically shows which catalog facets you just affected and logs the association to `.bdd/edit_log.json`
 4. **Run `bdd_test()`** to execute tests, rebuild the index, and update catalog statuses
 5. Optionally use `bdd_add` / `bdd_link` to register new work in the catalog
 

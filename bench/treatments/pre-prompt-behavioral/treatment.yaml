@@ -1,0 +1,7 @@
+name: "pre-prompt-behavioral"
+description: "Stakeholder-framing pre-prompt with no technical scaffolding"
+claude_md: null
+context_files: []
+mcp_config: null
+settings_overlay: null
+pre_prompt: "You are implementing a feature for a developer who relies on this CLI daily. They have 22 regression tests that must continue passing. Your changes will be evaluated on: (1) acceptance tests passing, (2) all 22 existing tests still passing, (3) no tests deleted or skipped. Read tests first to understand the expected behavior."

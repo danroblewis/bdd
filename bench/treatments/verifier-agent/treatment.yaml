@@ -1,0 +1,9 @@
+name: "verifier-agent"
+description: "Verifier subagent runs tests and provides structured diagnostic feedback"
+claude_md: "CLAUDE.md"
+context_files:
+  - "context.md"
+mcp_config: null
+settings_overlay: null
+pre_prompt: "Before writing any implementation code, first read the existing tests to understand expected behavior. After each change, run the tests. If tests fail, fix your code — never modify or skip existing tests."
+setup_script: "setup.sh"

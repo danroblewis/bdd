@@ -1,0 +1,8 @@
+name: "bdd-autodetect"
+description: "BDD system where Write/Edit hooks automatically detect affected catalog facets"
+claude_md: "CLAUDE.md"
+context_files: []
+mcp_config: null
+settings_overlay: null
+pre_prompt: null
+setup_script: "setup.sh"

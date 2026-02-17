@@ -1,7 +1,8 @@
 #!/bin/bash
-# Setup script for the full-bdd treatment
-# Bootstraps the complete BDD system: catalog, config, MCP server, hooks,
-# and pre-builds the index so the PostToolUse hook injects motivation context.
+# Setup script for the bdd-autodetect treatment
+# Same BDD catalog as full-bdd, but uses PostToolUse hooks on Write/Edit to
+# automatically detect which catalog facets the agent just modified.
+# The agent doesn't need to manually claim — the system infers and injects context.
 
 set -euo pipefail
 
@@ -191,7 +192,6 @@ cat > catalog.json << 'CATALOG_EOF'
 CATALOG_EOF
 
 # --- bdd.json (test config — cobertura coverage for index building) ---
-# Uses the bench venv python which has pytest-cov installed
 cat > bdd.json << EOF
 {
   "test_command": "$VENV_PYTHON -m pytest tests/ -v --tb=short --junitxml=.bdd/results.xml --cov=src/taskboard --cov-report=xml:.bdd/coverage.xml",
@@ -202,7 +202,8 @@ cat > bdd.json << EOF
 }
 EOF
 
-# --- .mcp.json (registers bdd_server.py with excluded tools) ---
+# --- .mcp.json (registers bdd_server.py — motivation/next/tree excluded) ---
+# bdd-autodetect relies on hooks, not agent-initiated tool calls, for context.
 cat > .mcp.json << EOF
 {
   "mcpServers": {
@@ -214,7 +215,9 @@ cat > .mcp.json << EOF
 }
 EOF
 
-# --- .claude/settings.json (merge PostToolUse hooks into existing settings) ---
+# --- .claude/settings.json (merge Read + Write/Edit hooks into existing settings) ---
+# Both hooks fire automatically — Read injects "why this code exists",
+# Write/Edit injects "what stakeholder behavior you just affected".
 mkdir -p .claude/hooks
 cp "$HOOK_SCRIPT" .claude/hooks/inject-context.sh
 cp "$WRITE_HOOK_SCRIPT" .claude/hooks/inject-write-context.sh
@@ -248,8 +251,6 @@ mkdir -p .bdd
 echo "$VENV_PYTHON" > .bdd/venv_python
 
 # --- Pre-build the index by running tests + coverage ---
-# Uses the CLI test command which runs pytest, parses results/coverage, and builds .bdd/index.json
-# This populates the index so the PostToolUse hook can inject motivation context on every Read
 "$VENV_PYTHON" "$BDD_SERVER" "$WORKSPACE" test >/dev/null 2>&1 || true
 
-echo "BDD system initialized: catalog.json, bdd.json, .mcp.json, hooks, index"
+echo "BDD system initialized (autodetect mode): catalog.json, bdd.json, .mcp.json, hooks, index"

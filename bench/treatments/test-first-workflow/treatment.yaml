@@ -1,0 +1,7 @@
+name: "test-first-workflow"
+description: "Workflow-focused CLAUDE.md with test-first instructions, no catalog or tools"
+claude_md: "CLAUDE.md"
+context_files: []
+mcp_config: null
+settings_overlay: null
+pre_prompt: null

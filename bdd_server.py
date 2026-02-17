@@ -487,8 +487,12 @@ mcp = FastMCP("bdd-catalog")
 
 
 @mcp.tool()
-def bdd_status() -> str:
-    """Catalog summary: counts, progress percentage, satisfied/unsatisfied expectations."""
+def bdd_status(check: str = "") -> str:
+    """Catalog summary: counts, progress percentage, satisfied/unsatisfied expectations.
+
+    Args:
+        check: Opt-in diagnostics. One of: overload, overlap, structural, status, coverage, semantic, all. Empty = summary only.
+    """
     root = get_root()
     catalog = load_catalog(root)
     if not catalog:
@@ -523,6 +527,13 @@ def bdd_status() -> str:
             for f in get_children(nodes, exp["id"]):
                 if f.get("status", "untested") != "passing":
                     lines.append(f"    {f['id']} [{f.get('status', 'untested')}] {f['text']}")
+
+    if check:
+        index = load_index(root)
+        check_output = run_checks(nodes, index, check)
+        if check_output:
+            lines.append("")
+            lines.append(check_output)
 
     return "\n".join(lines)
 
@@ -744,9 +755,15 @@ def bdd_locate(node_id: str) -> str:
     if not file_lines:
         return f"No coverage data for {node_id}. Run bdd_test first to build the index."
 
+    # Sort by line count descending, cap at 10 files
+    FILE_LIMIT = 10
+    sorted_files = sorted(file_lines.items(), key=lambda x: len(x[1]), reverse=True)
+    truncated = len(sorted_files) > FILE_LIMIT
+    display_files = sorted_files[:FILE_LIMIT]
+
     result_lines = [f"Implementation of {node_id} ({node['text']}):"]
-    for filepath in sorted(file_lines):
-        lines = sorted(file_lines[filepath])
+    for filepath, line_set in display_files:
+        lines = sorted(line_set)
         # Compress into ranges
         ranges = []
         start = lines[0]
@@ -761,6 +778,9 @@ def bdd_locate(node_id: str) -> str:
         ranges.append((start, end))
         range_strs = [f"{s}-{e}" if s != e else str(s) for s, e in ranges]
         result_lines.append(f"  {filepath}: lines {', '.join(range_strs)}")
+
+    if truncated:
+        result_lines.append(f"  ... and {len(sorted_files) - FILE_LIMIT} more files (showing top {FILE_LIMIT} by line count)")
 
     return "\n".join(result_lines)
 
@@ -908,19 +928,14 @@ def bdd_test() -> str:
     })
 
 
-@mcp.tool()
-def bdd_check(category: str = "") -> str:
-    """Scan catalog and index for contradictions, orphans, and other issues.
+def run_checks(nodes, index, category):
+    """Run catalog health checks. Returns diagnostic string.
 
     Args:
-        category: Filter to one check type: overload, overlap, structural, status, coverage, semantic. Empty = all.
+        nodes: catalog nodes list
+        index: loaded index dict
+        category: one of: overload, overlap, structural, status, coverage, semantic, all. Empty = all.
     """
-    root = get_root()
-    catalog = load_catalog(root)
-    if not catalog:
-        return "No catalog.json found"
-    nodes = catalog["nodes"]
-    index = load_index(root)
     forward = index.get("forward", {})
     reverse = index.get("reverse", {})
     test_results = index.get("test_results", {})
@@ -928,9 +943,9 @@ def bdd_check(category: str = "") -> str:
     node_map = {n["id"]: n for n in nodes}
 
     all_categories = ("overload", "overlap", "structural", "status", "coverage", "semantic")
-    if category and category not in all_categories:
-        return f"Unknown category '{category}'. Choose from: {', '.join(all_categories)}"
-    cats = (category,) if category else all_categories
+    if category and category != "all" and category not in all_categories:
+        return f"Unknown category '{category}'. Choose from: {', '.join(all_categories)}, all"
+    cats = all_categories if (not category or category == "all") else (category,)
 
     sections = []
     total_issues = 0
@@ -1241,7 +1256,15 @@ def cli_query(args):
     rest = args[2:]
 
     if tool == "status":
-        print(bdd_status())
+        # status [--check <category>]
+        check_cat = ""
+        i = 0
+        while i < len(rest):
+            if rest[i] == "--check" and i + 1 < len(rest):
+                i += 1
+                check_cat = rest[i]
+            i += 1
+        print(bdd_status(check=check_cat))
     elif tool == "next":
         print(bdd_next())
     elif tool == "tree":
@@ -1294,7 +1317,13 @@ def cli_query(args):
         # link <facet_id> <test_id>
         print(bdd_link(rest[0] if rest else "", rest[1] if len(rest) > 1 else ""))
     elif tool == "check":
-        print(bdd_check(category=rest[0] if rest else ""))
+        root = get_root()
+        catalog = load_catalog(root)
+        if not catalog:
+            print("No catalog.json found")
+            sys.exit(1)
+        index = load_index(root)
+        print(run_checks(catalog["nodes"], index, category=rest[0] if rest else ""))
     else:
         print(f"Unknown tool: {tool}")
         print("Available: status, next, tree, motivation, locate, test, add, link, check")
@@ -1306,15 +1335,33 @@ def main():
         idx = sys.argv.index("--run-tests")
         root = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else os.getcwd()
         run_tests_cli(os.path.abspath(root))
-    elif len(sys.argv) >= 3 and not sys.argv[2].startswith("-"):
+    elif len(sys.argv) >= 3 and sys.argv[2] not in ("--exclude-tools",) and not sys.argv[2].startswith("-"):
         # CLI query mode: bdd_server.py <root> <tool> [args...]
         cli_query(sys.argv[1:])
     else:
         global PROJECT_ROOT
-        if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
-            PROJECT_ROOT = os.path.abspath(sys.argv[1])
-        else:
-            PROJECT_ROOT = os.getcwd()
+        # Parse --exclude-tools
+        exclude_tools = set()
+        args = sys.argv[1:]
+        positional_root = None
+        i = 0
+        while i < len(args):
+            if args[i] == "--exclude-tools" and i + 1 < len(args):
+                i += 1
+                exclude_tools = {t.strip() for t in args[i].split(",") if t.strip()}
+            elif not args[i].startswith("-") and positional_root is None:
+                positional_root = args[i]
+            i += 1
+
+        PROJECT_ROOT = os.path.abspath(positional_root) if positional_root else os.getcwd()
+
+        # Remove excluded tools from MCP registry before running
+        for name in exclude_tools:
+            try:
+                mcp.remove_tool(name)
+            except (KeyError, ValueError):
+                pass
+
         mcp.run(transport="stdio")
 
 

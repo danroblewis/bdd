@@ -1,0 +1,9 @@
+name: "whw-plus-catalog-inline"
+description: "Why/How/What context plus catalog rendered as inline markdown (no MCP)"
+claude_md: null
+context_files:
+  - "context.md"
+  - "catalog-context.md"
+mcp_config: null
+settings_overlay: null
+pre_prompt: null
