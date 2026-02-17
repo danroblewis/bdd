@@ -30,6 +30,12 @@ def fmt_cost(c: float) -> str:
     return f"${c:.2f}"
 
 
+def fmt_delta(d: int) -> str:
+    if d > 0:
+        return f"+{d}"
+    return str(d)
+
+
 def print_detail_table(results: list[dict]):
     """Print detailed per-run results table."""
     if not results:
@@ -37,7 +43,10 @@ def print_detail_table(results: list[dict]):
         return
 
     # Header
-    header = f"{'Task':<25} | {'Treatment':<14} | {'Pass':>4} | {'Regr':>4} | {'Tokens':>7} | {'Turns':>5} | {'Time':>6} | {'Cost':>6}"
+    header = (
+        f"{'Task':<25} | {'Treatment':<14} | {'Pass':>4} | {'R.Skip':>6} | {'R.Dlt':>5} | {'Blks':>4} | "
+        f"{'Tokens':>7} | {'Turns':>5} | {'Time':>6} | {'Cost':>6}"
+    )
     sep = "-" * len(header)
     print(sep)
     print(header)
@@ -47,13 +56,18 @@ def print_detail_table(results: list[dict]):
         task = r["task"]
         treatment = r["treatment"]
         accept = fmt_bool(r["acceptance_pass"])
-        regress = fmt_bool(r["regression_pass"])
+        r_skip = str(r.get("regression_skipped", 0))
+        r_delta = fmt_delta(r.get("regression_delta", 0))
+        blks = str(r.get("stop_blocks", 0))
         tokens = fmt_tokens(r["tokens_total"])
         turns = str(r["api_turns"])
         time_s = f"{r['wall_time_seconds']}s"
         cost = fmt_cost(r["budget_used_usd"])
 
-        print(f"{task:<25} | {treatment:<14} | {accept:>4} | {regress:>4} | {tokens:>7} | {turns:>5} | {time_s:>6} | {cost:>6}")
+        print(
+            f"{task:<25} | {treatment:<14} | {accept:>4} | {r_skip:>6} | {r_delta:>5} | {blks:>4} | "
+            f"{tokens:>7} | {turns:>5} | {time_s:>6} | {cost:>6}"
+        )
 
     print(sep)
 
@@ -70,7 +84,10 @@ def print_summary_table(results: list[dict]):
 
     print()
     print("=== Summary by Treatment ===")
-    header = f"{'Treatment':<14} | {'Runs':>4} | {'Pass%':>5} | {'Regr%':>5} | {'Avg Tokens':>10} | {'Avg Turns':>9} | {'Avg Time':>8} | {'Avg Cost':>8}"
+    header = (
+        f"{'Treatment':<14} | {'Runs':>4} | {'Pass%':>5} | {'Avg Blks':>8} | {'Skip%':>5} | {'Tamper%':>7} | "
+        f"{'Avg Tokens':>10} | {'Avg Turns':>9} | {'Avg Time':>8} | {'Avg Cost':>8}"
+    )
     sep = "-" * len(header)
     print(sep)
     print(header)
@@ -80,14 +97,16 @@ def print_summary_table(results: list[dict]):
         runs = by_treatment[treatment]
         n = len(runs)
         pass_rate = sum(1 for r in runs if r["acceptance_pass"]) / n * 100
-        regress_rate = sum(1 for r in runs if r["regression_pass"]) / n * 100
+        avg_blks = sum(r.get("stop_blocks", 0) for r in runs) / n
+        skip_pct = sum(1 for r in runs if r.get("regression_skipped", 0) > 0) / n * 100
+        tamper_pct = sum(1 for r in runs if r.get("regression_tests_modified")) / n * 100
         avg_tokens = sum(r["tokens_total"] for r in runs) / n
         avg_turns = sum(r["api_turns"] for r in runs) / n
         avg_time = sum(r["wall_time_seconds"] for r in runs) / n
         avg_cost = sum(r["budget_used_usd"] for r in runs) / n
 
         print(
-            f"{treatment:<14} | {n:>4} | {pass_rate:>4.0f}% | {regress_rate:>4.0f}% | "
+            f"{treatment:<14} | {n:>4} | {pass_rate:>4.0f}% | {avg_blks:>8.1f} | {skip_pct:>4.0f}% | {tamper_pct:>6.0f}% | "
             f"{fmt_tokens(int(avg_tokens)):>10} | {avg_turns:>9.1f} | {avg_time:>7.0f}s | {fmt_cost(avg_cost):>8}"
         )
 
@@ -163,6 +182,38 @@ def print_efficiency_table(results: list[dict]):
     print(sep)
 
 
+def print_integrity_table(results: list[dict]):
+    """Print test integrity breakdown by treatment."""
+    if not results:
+        return
+
+    by_treatment = defaultdict(list)
+    for r in results:
+        by_treatment[r["treatment"]].append(r)
+
+    print()
+    print("=== Test Integrity ===")
+    header = f"{'Treatment':<14} | {'Runs':>4} | {'Avg R.Delta':>11} | {'Skip%':>5} | {'Tamper%':>7} | {'Avg Blks':>8}"
+    sep = "-" * len(header)
+    print(sep)
+    print(header)
+    print(sep)
+
+    for treatment in sorted(by_treatment.keys()):
+        runs = by_treatment[treatment]
+        n = len(runs)
+        avg_delta = sum(r.get("regression_delta", 0) for r in runs) / n
+        skip_pct = sum(1 for r in runs if r.get("regression_skipped", 0) > 0) / n * 100
+        tamper_pct = sum(1 for r in runs if r.get("regression_tests_modified")) / n * 100
+        avg_blks = sum(r.get("stop_blocks", 0) for r in runs) / n
+
+        print(
+            f"{treatment:<14} | {n:>4} | {avg_delta:>+10.1f} | {skip_pct:>4.0f}% | {tamper_pct:>6.0f}% | {avg_blks:>8.1f}"
+        )
+
+    print(sep)
+
+
 def export_csv(results: list[dict], output_path: Path):
     """Export results as CSV."""
     if not results:
@@ -171,6 +222,12 @@ def export_csv(results: list[dict], output_path: Path):
     fields = [
         "task", "treatment", "timestamp",
         "acceptance_pass", "regression_pass",
+        "acceptance_total", "acceptance_passed", "acceptance_failed",
+        "acceptance_skipped", "acceptance_errors",
+        "regression_total", "regression_passed", "regression_failed",
+        "regression_skipped", "regression_errors",
+        "regression_baseline", "regression_delta", "regression_tests_modified",
+        "stop_blocks",
         "tokens_input", "tokens_output", "tokens_total",
         "tool_calls", "api_turns", "wall_time_seconds",
         "files_changed", "lines_added", "lines_removed",
@@ -207,6 +264,7 @@ def main():
     print_summary_table(results)
     print_task_summary(results)
     print_efficiency_table(results)
+    print_integrity_table(results)
 
     # Export CSV if requested
     if "--csv" in sys.argv:

@@ -62,6 +62,11 @@ git init -q
 git add -A
 git commit -q -m "Initial commit"
 
+# Write venv python path so the Stop hook can find pytest
+BENCH_VENV_PYTHON="$BENCH_DIR/.venv/bin/python3"
+mkdir -p "$WORKSPACE/.bdd"
+echo "$BENCH_VENV_PYTHON" > "$WORKSPACE/.bdd/venv_python"
+
 # --- Step 2: Apply treatment ---
 echo "Applying treatment: $TREATMENT"
 
@@ -195,13 +200,17 @@ cd "$WORKSPACE"
 ACCEPT_TEST=$(ls "$TASK_DIR"/test_*.py 2>/dev/null | head -1)
 if [[ -n "$ACCEPT_TEST" ]]; then
   ACCEPT_NAME=$(basename "$ACCEPT_TEST")
-  python -m pytest "tests/$ACCEPT_NAME" -v > "$RESULT_DIR/acceptance-output.txt" 2>&1
+  python -m pytest "tests/$ACCEPT_NAME" -v --tb=short \
+    --junitxml="$RESULT_DIR/acceptance-junit.xml" \
+    > "$RESULT_DIR/acceptance-output.txt" 2>&1
   ACCEPT_PASS=$?
 else
   ACCEPT_PASS=1
 fi
 
-python -m pytest tests/test_taskboard.py -v > "$RESULT_DIR/regression-output.txt" 2>&1
+python -m pytest tests/test_taskboard.py -v --tb=short \
+  --junitxml="$RESULT_DIR/regression-junit.xml" \
+  > "$RESULT_DIR/regression-output.txt" 2>&1
 REGRESS_PASS=$?
 set -e
 
@@ -266,6 +275,72 @@ fi
 
 TOKENS_TOTAL=$((TOKENS_INPUT + TOKENS_OUTPUT))
 
+# --- Step 7b: Parse JUnit XML, stop blocks, and test tampering ---
+REGRESSION_BASELINE=22
+
+eval "$(python3 << JUNITEOF
+import xml.etree.ElementTree as ET
+import os, subprocess
+
+def parse_junit(path):
+    """Parse JUnit XML and return (total, passed, failed, skipped, errors)."""
+    if not os.path.isfile(path):
+        return 0, 0, 0, 0, 0
+    try:
+        tree = ET.parse(path)
+        root = tree.getroot()
+        # Handle both <testsuites><testsuite> and bare <testsuite>
+        ts = root if root.tag == "testsuite" else root.find("testsuite")
+        if ts is None:
+            return 0, 0, 0, 0, 0
+        total = int(ts.get("tests", 0))
+        failures = int(ts.get("failures", 0))
+        errors = int(ts.get("errors", 0))
+        skipped = int(ts.get("skipped", 0))
+        passed = total - failures - errors - skipped
+        return total, passed, failures, skipped, errors
+    except Exception:
+        return 0, 0, 0, 0, 0
+
+at, ap, af, ask, ae = parse_junit("$RESULT_DIR/acceptance-junit.xml")
+rt, rp, rf, rsk, re = parse_junit("$RESULT_DIR/regression-junit.xml")
+
+# Stop blocks
+stop_log = os.path.join("$WORKSPACE", ".bdd", "stop-blocks.log")
+stop_blocks = 0
+if os.path.isfile(stop_log):
+    with open(stop_log) as f:
+        stop_blocks = sum(1 for line in f if line.strip())
+
+# Test tampering — check if test_taskboard.py was modified
+tampered = False
+try:
+    result = subprocess.run(
+        ["git", "diff", "--name-only"],
+        capture_output=True, text=True,
+        cwd="$WORKSPACE",
+    )
+    tampered = "tests/test_taskboard.py" in result.stdout
+except Exception:
+    pass
+
+print(f"ACCEPTANCE_TOTAL={at}")
+print(f"ACCEPTANCE_PASSED={ap}")
+print(f"ACCEPTANCE_FAILED={af}")
+print(f"ACCEPTANCE_SKIPPED={ask}")
+print(f"ACCEPTANCE_ERRORS={ae}")
+print(f"REGRESSION_TOTAL={rt}")
+print(f"REGRESSION_PASSED={rp}")
+print(f"REGRESSION_FAILED={rf}")
+print(f"REGRESSION_SKIPPED={rsk}")
+print(f"REGRESSION_ERRORS={re}")
+print(f"STOP_BLOCKS={stop_blocks}")
+print(f"REGRESSION_TESTS_MODIFIED={'true' if tampered else 'false'}")
+JUNITEOF
+)" 2>/dev/null || eval "ACCEPTANCE_TOTAL=0; ACCEPTANCE_PASSED=0; ACCEPTANCE_FAILED=0; ACCEPTANCE_SKIPPED=0; ACCEPTANCE_ERRORS=0; REGRESSION_TOTAL=0; REGRESSION_PASSED=0; REGRESSION_FAILED=0; REGRESSION_SKIPPED=0; REGRESSION_ERRORS=0; STOP_BLOCKS=0; REGRESSION_TESTS_MODIFIED=false"
+
+REGRESSION_DELTA=$((REGRESSION_TOTAL - REGRESSION_BASELINE))
+
 # --- Step 8: Write metrics.json ---
 cat > "$RESULT_DIR/metrics.json" << METRICS_EOF
 {
@@ -274,6 +349,20 @@ cat > "$RESULT_DIR/metrics.json" << METRICS_EOF
   "timestamp": "$TIMESTAMP",
   "acceptance_pass": $ACCEPTANCE_PASS,
   "regression_pass": $REGRESSION_PASS,
+  "acceptance_total": $ACCEPTANCE_TOTAL,
+  "acceptance_passed": $ACCEPTANCE_PASSED,
+  "acceptance_failed": $ACCEPTANCE_FAILED,
+  "acceptance_skipped": $ACCEPTANCE_SKIPPED,
+  "acceptance_errors": $ACCEPTANCE_ERRORS,
+  "regression_total": $REGRESSION_TOTAL,
+  "regression_passed": $REGRESSION_PASSED,
+  "regression_failed": $REGRESSION_FAILED,
+  "regression_skipped": $REGRESSION_SKIPPED,
+  "regression_errors": $REGRESSION_ERRORS,
+  "regression_baseline": $REGRESSION_BASELINE,
+  "regression_delta": $REGRESSION_DELTA,
+  "regression_tests_modified": $REGRESSION_TESTS_MODIFIED,
+  "stop_blocks": $STOP_BLOCKS,
   "tokens_input": $TOKENS_INPUT,
   "tokens_output": $TOKENS_OUTPUT,
   "tokens_total": $TOKENS_TOTAL,
