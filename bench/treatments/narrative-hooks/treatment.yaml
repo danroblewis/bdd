@@ -1,0 +1,8 @@
+name: "narrative-hooks"
+description: "Hooks inject natural-language design notes instead of structured tree annotations"
+claude_md: "CLAUDE.md"
+context_files: []
+mcp_config: null
+settings_overlay: null
+pre_prompt: null
+setup_script: "setup.sh"

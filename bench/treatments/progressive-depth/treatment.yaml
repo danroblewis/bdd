@@ -1,0 +1,8 @@
+name: "progressive-depth"
+description: "Goal-only context on Read, expectation-level context on Write/Edit — matches motivation depth to workflow stage"
+claude_md: "CLAUDE.md"
+context_files: []
+mcp_config: null
+settings_overlay: null
+pre_prompt: null
+setup_script: "setup.sh"

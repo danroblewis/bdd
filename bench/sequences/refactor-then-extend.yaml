@@ -1,0 +1,6 @@
+name: "refactor-then-extend"
+description: "Refactor storage, add due dates, then add search"
+steps:
+  - task: "004-refactor-store"
+  - task: "005-add-due-dates"
+  - task: "001-add-search"

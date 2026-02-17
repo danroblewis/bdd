@@ -1,0 +1,8 @@
+name: "motivation-briefing"
+description: "Pre-generated architectural narrative from catalog — explains why the project is built the way it is, no hooks"
+claude_md: "CLAUDE.md"
+context_files: []
+mcp_config: null
+settings_overlay: null
+pre_prompt: null
+setup_script: "setup.sh"

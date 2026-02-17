@@ -1,0 +1,8 @@
+name: "differential-context"
+description: "Hooks track what has been shown and only inject NEW motivation chains — preserves novelty signal"
+claude_md: "CLAUDE.md"
+context_files: []
+mcp_config: null
+settings_overlay: null
+pre_prompt: null
+setup_script: "setup.sh"

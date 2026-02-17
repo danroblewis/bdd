@@ -14,12 +14,14 @@ def _add(store_path, title):
 class TestTagCommand:
     def test_tag_adds_tag(self, store_path, capsys):
         _add(store_path, "Task one")
+        capsys.readouterr()  # flush add output
         ret = main(["--store", str(store_path), "tag", "1", "urgent"])
         assert ret == 0
 
     def test_tag_shows_in_list(self, store_path, capsys):
         _add(store_path, "Task one")
         main(["--store", str(store_path), "tag", "1", "urgent"])
+        capsys.readouterr()  # flush add/tag output
         main(["--store", str(store_path), "list"])
         out = capsys.readouterr().out
         assert "urgent" in out
@@ -67,6 +69,7 @@ class TestListByTag:
         _add(store_path, "Home task")
         main(["--store", str(store_path), "tag", "1", "work"])
         main(["--store", str(store_path), "tag", "2", "home"])
+        capsys.readouterr()  # flush add/tag output
         ret = main(["--store", str(store_path), "list", "--tag", "work"])
         assert ret == 0
         out = capsys.readouterr().out
@@ -76,6 +79,7 @@ class TestListByTag:
     def test_list_tag_case_insensitive(self, store_path, capsys):
         _add(store_path, "Task one")
         main(["--store", str(store_path), "tag", "1", "Urgent"])
+        capsys.readouterr()  # flush add/tag output
         ret = main(["--store", str(store_path), "list", "--tag", "urgent"])
         assert ret == 0
         out = capsys.readouterr().out
@@ -83,6 +87,7 @@ class TestListByTag:
 
     def test_list_tag_no_match(self, store_path, capsys):
         _add(store_path, "Task one")
+        capsys.readouterr()  # flush add output
         ret = main(["--store", str(store_path), "list", "--tag", "nonexistent"])
         out = capsys.readouterr().out
         assert "No tasks" in out

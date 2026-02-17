@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""inject-write-context.sh — Surface BDD motivation context after Write/Edit tool use.
-Reads .bdd/index.json directly (no CLI dependency).
-Called as a PostToolUse hook for Write and Edit. Receives JSON on stdin.
-Logs every edit to .bdd/edit_log.json for post-run analysis.
+"""inject-context-medium.sh — Expectation-level motivation context for Write/Edit hooks.
+Used by the progressive-depth treatment: goals + expectations (no facets) when modifying code.
+Shows the stakeholder expectations at stake, with a breadcrumb to bdd_motivation for details.
+Also logs edits to .bdd/edit_log.json and updates catalog modifications.
 """
 
-import sys, json, os, subprocess
+import sys, json, os
 from datetime import datetime
 
 def find_project_root():
@@ -49,8 +49,6 @@ if not file_path:
     log(f"END write-hook status=skipped file= reason=no-file-path")
     sys.exit(0)
 
-log(f"{tool_name}: {file_path}")
-
 # Skip non-source files
 skip_patterns = ("test", "catalog.json", "index.json", ".md", ".toml", ".yaml",
                  ".yml", ".lock", ".json", ".cfg", ".ini", ".bdd/", ".claude/")
@@ -59,10 +57,11 @@ for pat in skip_patterns:
         log(f"END write-hook status=skipped file={file_path} reason=pattern:{pat}")
         sys.exit(0)
 
-# Load index and catalog — if missing, still log the edit but skip context
+# Load index and catalog
 has_index = os.path.isfile(INDEX_FILE) and os.path.isfile(CATALOG_FILE)
 forward = {}
 nodes = []
+node_map = {}
 if has_index:
     try:
         with open(INDEX_FILE) as f:
@@ -71,67 +70,54 @@ if has_index:
             catalog = json.load(f)
         forward = index.get("forward", {})
         nodes = catalog.get("nodes", [])
-        log(f"index has {len(forward)} files, catalog has {len(nodes)} nodes")
+        node_map = {n["id"]: n for n in nodes}
     except Exception as e:
         log(f"load error: {e}")
-        log(f"END write-hook status=skipped file={file_path} reason=load-error")
         has_index = False
 
-# Find matching file in forward map
+# Find matching file
 rel_path = os.path.relpath(file_path, PROJECT_ROOT) if os.path.isabs(file_path) else file_path
 matched = {f: lines for f, lines in forward.items() if rel_path in f or f in rel_path}
-
-if matched:
-    log(f"matched {len(matched)} files for {rel_path}")
 
 # Collect facet IDs
 facet_ids = set()
 affected_lines = []
 
 if matched and tool_name == "Edit":
-    # For Edit: try to narrow to affected lines by finding new_string in the file
     new_string = ti.get("new_string", "")
     if new_string and os.path.isfile(file_path):
         try:
             with open(file_path) as f:
-                file_lines = f.readlines()
-            # Find lines that contain parts of new_string
-            new_lines = new_string.split("\n")
-            for i, fl in enumerate(file_lines, 1):
+                file_content = f.readlines()
+            new_parts = new_string.split("\n")
+            for i, fl in enumerate(file_content, 1):
                 stripped = fl.rstrip("\n")
-                for nl in new_lines:
+                for nl in new_parts:
                     if nl.strip() and nl.strip() in stripped:
                         affected_lines.append(i)
                         break
-        except Exception as e:
-            log(f"line search failed: {e}")
+        except Exception:
+            pass
 
     if affected_lines:
-        # Narrow to facets on affected lines only
-        log(f"narrowing to {len(affected_lines)} affected lines: {affected_lines[:10]}...")
         for src_file, line_map in matched.items():
             for ls, fids in line_map.items():
                 if int(ls) in affected_lines:
                     for fid in fids:
                         facet_ids.add(fid)
     else:
-        # Fall back to file-level matching
         for src_file, line_map in matched.items():
             for ls, fids in line_map.items():
                 for fid in fids:
                     facet_ids.add(fid)
 
 elif matched and tool_name == "Write":
-    # For Write: file-level matching (all facets for that file)
     for src_file, line_map in matched.items():
         for ls, fids in line_map.items():
             for fid in fids:
                 facet_ids.add(fid)
 
-log(f"found {len(facet_ids)} facets: {sorted(facet_ids)}")
-
 # Build ancestor chains for logging
-node_map = {n["id"]: n for n in nodes}
 chains = []
 for fid in sorted(facet_ids):
     chain_parts = []
@@ -143,7 +129,7 @@ for fid in sorted(facet_ids):
     chain_parts.reverse()
     chains.append(" > ".join(chain_parts))
 
-# Always log to edit_log.json
+# Log to edit_log.json
 entry = {
     "ts": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
     "tool": tool_name,
@@ -165,11 +151,10 @@ try:
     edit_log.append(entry)
     with open(EDIT_LOG_FILE, "w") as f:
         json.dump(edit_log, f, indent=2)
-    log(f"logged edit to {EDIT_LOG_FILE}")
-except Exception as e:
-    log(f"edit_log write error: {e}")
+except Exception:
+    pass
 
-# Update catalog.json with modification tracking
+# Update catalog modifications
 if facet_ids and has_index:
     try:
         for node in nodes:
@@ -186,13 +171,11 @@ if facet_ids and has_index:
         with open(CATALOG_FILE, "w") as f:
             json.dump(catalog, f, indent=2)
             f.write("\n")
-        log(f"updated catalog.json with modifications for {sorted(facet_ids)}")
-    except Exception as e:
-        log(f"catalog update error: {e}")
+    except Exception:
+        pass
 
-# Only inject context if facets were found
+# No facets? Nudge
 if not facet_ids:
-    log("no facets matched — nudging agent")
     log(f"END write-hook status=unmapped file={file_path}")
     print(json.dumps({
         "hookSpecificOutput": {
@@ -208,51 +191,45 @@ if not facet_ids:
     }))
     sys.exit(0)
 
-# Build deduplicated tree from facet chains
-tree_nodes = {}  # nid -> {node, children set}
-tree_roots = set()
-for fid in sorted(facet_ids):
-    chain = []
+# Build goal -> expectations tree (no facets)
+# Walk up from each facet to find its goal and expectation
+goal_expectations = {}  # goal_id -> set of expectation_ids
+for fid in facet_ids:
     current = node_map.get(fid)
+    expectation = None
+    goal = None
     while current:
-        chain.append(current)
+        if current["type"] == "expectation":
+            expectation = current
+        elif current["type"] == "goal":
+            goal = current
+            break
         pid = current.get("parent")
         current = node_map.get(pid) if pid else None
-    chain.reverse()
-    for i, n in enumerate(chain):
-        if n["id"] not in tree_nodes:
-            tree_nodes[n["id"]] = {"node": n, "children": set()}
-        if i > 0:
-            tree_nodes[chain[i - 1]["id"]]["children"].add(n["id"])
-        else:
-            tree_roots.add(n["id"])
+    if goal and expectation:
+        goal_expectations.setdefault(goal["id"], set()).add(expectation["id"])
 
-if not tree_nodes:
-    log("no chains built")
-    log(f"END write-hook status=skipped file={file_path} reason=no-chains")
+if not goal_expectations:
+    log(f"END write-hook status=skipped file={file_path} reason=no-goal-expectations")
     sys.exit(0)
 
-log(f"injecting motivation tree ({len(facet_ids)} facets)")
-lines = ["--- BDD: You modified code that implements ---"]
+# Render: goals + expectations, no facets
+lines_out = ["--- BDD: You're modifying code that implements ---"]
+for gid in sorted(goal_expectations.keys()):
+    goal = node_map.get(gid, {})
+    lines_out.append(f"**{gid}**: {goal.get('text', '?')}")
+    for eid in sorted(goal_expectations[gid]):
+        exp = node_map.get(eid, {})
+        lines_out.append(f"  - **{eid}**: {exp.get('text', '?')}")
 
-def render(nid, indent=0):
-    tn = tree_nodes[nid]
-    n = tn["node"]
-    prefix = "  " * indent
-    t = n["type"][0].upper()
-    lines.append(f'  {prefix}{n["id"]} [{t}] {n["text"]}')
-    for cid in sorted(tn["children"]):
-        render(cid, indent + 1)
+lines_out.append(f"*Preserve these expectations. Call bdd_motivation(\"{os.path.basename(file_path)}\") for implementation details.*")
+lines_out.append("---")
 
-for rid in sorted(tree_roots):
-    render(rid)
-lines.append("---")
-
-log(f"END write-hook status=injected file={file_path} facets={len(facet_ids)}")
+log(f"END write-hook status=injected file={file_path} facets={len(facet_ids)} depth=expectation")
 
 print(json.dumps({
     "hookSpecificOutput": {
         "hookEventName": "PostToolUse",
-        "additionalContext": "\n".join(lines)
+        "additionalContext": "\n".join(lines_out)
     }
 }))

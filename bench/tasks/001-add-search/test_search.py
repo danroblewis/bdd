@@ -21,6 +21,7 @@ class TestSearch:
         _add(store_path, "Buy groceries")
         _add(store_path, "Buy new shoes")
         _add(store_path, "Walk the dog")
+        capsys.readouterr()  # flush add output
         ret = main(["--store", str(store_path), "search", "buy"])
         assert ret == 0
         out = capsys.readouterr().out
@@ -30,6 +31,7 @@ class TestSearch:
 
     def test_search_case_insensitive(self, store_path, capsys):
         _add(store_path, "READ the book")
+        capsys.readouterr()  # flush add output
         ret = main(["--store", str(store_path), "search", "read"])
         assert ret == 0
         out = capsys.readouterr().out
@@ -37,6 +39,7 @@ class TestSearch:
 
     def test_search_no_match(self, store_path, capsys):
         _add(store_path, "Buy milk")
+        capsys.readouterr()  # flush add output
         ret = main(["--store", str(store_path), "search", "zebra"])
         out = capsys.readouterr().out
         assert "No matching tasks" in out
@@ -45,6 +48,7 @@ class TestSearch:
         _add(store_path, "Buy milk")
         _add(store_path, "Buy eggs")
         main(["--store", str(store_path), "done", "1"])
+        capsys.readouterr()  # flush add/done output
         ret = main(["--store", str(store_path), "search", "buy", "--status", "todo"])
         assert ret == 0
         out = capsys.readouterr().out

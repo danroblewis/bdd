@@ -1,0 +1,8 @@
+name: "best-chain-only"
+description: "Hooks inject single most relevant motivation chain per file access, scored by line proximity and specificity"
+claude_md: "CLAUDE.md"
+context_files: []
+mcp_config: null
+settings_overlay: null
+pre_prompt: null
+setup_script: "setup.sh"

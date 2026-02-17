@@ -1,0 +1,5 @@
+name: "crud-then-search"
+description: "Fix priority bug, then add search feature"
+steps:
+  - task: "002-fix-priority-bug"
+  - task: "001-add-search"

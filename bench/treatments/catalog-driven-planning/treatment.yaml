@@ -1,0 +1,8 @@
+name: "catalog-driven-planning"
+description: "Agent formalizes design intent in catalog terms (bdd_add/bdd_tree) before coding — all MCP tools enabled"
+claude_md: "CLAUDE.md"
+context_files: []
+mcp_config: null
+settings_overlay: null
+pre_prompt: null
+setup_script: "setup.sh"

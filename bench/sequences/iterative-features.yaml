@@ -1,0 +1,6 @@
+name: "iterative-features"
+description: "Incremental feature additions: validation, stats, export/import"
+steps:
+  - task: "006-validate-inputs"
+  - task: "007-add-stats"
+  - task: "009-export-import"

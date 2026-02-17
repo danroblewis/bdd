@@ -1,0 +1,7 @@
+name: "full-stack"
+description: "Tags, status workflow, stats, then export/import"
+steps:
+  - task: "003-add-tags"
+  - task: "008-status-workflow"
+  - task: "007-add-stats"
+  - task: "009-export-import"

@@ -60,6 +60,7 @@ class TestListSortByDue:
         main(["--store", str(store_path), "add", "Later", "--due", _next_week()])
         main(["--store", str(store_path), "add", "Sooner", "--due", _tomorrow()])
         main(["--store", str(store_path), "add", "No date"])
+        capsys.readouterr()  # flush add output
         ret = main(["--store", str(store_path), "list", "--due"])
         assert ret == 0
         out = capsys.readouterr().out
@@ -74,12 +75,14 @@ class TestListSortByDue:
 class TestOverdueDisplay:
     def test_overdue_task_shows_marker(self, store_path, capsys):
         main(["--store", str(store_path), "add", "Past due task", "--due", _yesterday()])
+        capsys.readouterr()  # flush add output
         main(["--store", str(store_path), "list"])
         out = capsys.readouterr().out
         assert "OVERDUE" in out
 
     def test_future_task_no_overdue_marker(self, store_path, capsys):
         main(["--store", str(store_path), "add", "Future task", "--due", _tomorrow()])
+        capsys.readouterr()  # flush add output
         main(["--store", str(store_path), "list"])
         out = capsys.readouterr().out
         assert "OVERDUE" not in out
@@ -87,6 +90,7 @@ class TestOverdueDisplay:
     def test_done_task_not_overdue(self, store_path, capsys):
         main(["--store", str(store_path), "add", "Done task", "--due", _yesterday()])
         main(["--store", str(store_path), "done", "1"])
+        capsys.readouterr()  # flush add/done output
         main(["--store", str(store_path), "list"])
         out = capsys.readouterr().out
         assert "OVERDUE" not in out
@@ -96,6 +100,7 @@ class TestDueDateDisplay:
     def test_due_date_shown_in_output(self, store_path, capsys):
         due = _tomorrow()
         main(["--store", str(store_path), "add", "Task with date", "--due", due])
+        capsys.readouterr()  # flush add output
         main(["--store", str(store_path), "list"])
         out = capsys.readouterr().out
         assert due in out
