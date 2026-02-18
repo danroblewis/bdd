@@ -16,7 +16,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/inject-context.sh\" 2>/dev/null || true"
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/inject-context-narrative.sh\" 2>/dev/null || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/inject-write-context-narrative.sh\" 2>/dev/null || true"
           }
         ]
       }
