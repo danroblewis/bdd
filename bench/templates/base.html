@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BDD Catalog Explorer</title>
+<style>
+/*CSS_PLACEHOLDER*/
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h1>BDD Catalog Explorer</h1>
+  <div class="view-tabs">
+    <button class="view-tab active" data-view="catalog">Catalog</button>
+    <button class="view-tab" data-view="preview">LLM Preview</button>
+  </div>
+  <div class="search-box" id="searchBoxWrap">
+    <input type="text" id="searchInput" placeholder="Search (regex)..." />
+  </div>
+  <div class="counts" id="topCounts"></div>
+</div>
+
+<div class="layout">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="view-content" id="viewCatalog">
+    <div class="main-grid">
+      <div class="panel panel-hierarchy">
+        <div class="panel-header">Hierarchy <span id="hierarchyControls"></span></div>
+        <div class="panel-body" id="hierarchyContent"></div>
+      </div>
+      <div class="panel panel-files">
+        <div class="panel-header">Files</div>
+        <div class="panel-body" id="filesContent"></div>
+      </div>
+      <div class="panel panel-stats">
+        <div class="panel-header">Stats</div>
+        <div class="panel-body" id="statsContent"></div>
+      </div>
+    </div>
+  </div>
+  <div class="view-content view-hidden" id="viewPreview">
+    <div class="preview-full" id="previewContent"></div>
+  </div>
+</div>
+
+<script>
+var DATA = /*DATA_PLACEHOLDER*/;
+/*JS_PLACEHOLDER*/
+</script>
+</body>
+</html>

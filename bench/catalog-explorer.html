@@ -1,0 +1,1632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BDD Catalog Explorer</title>
+<style>
+/* Node type colors */
+.node-goal{border-left:3px solid #0d6efd}
+.node-exp{border-left:3px solid #198754}
+.node-facet{border-left:3px solid #495057}
+
+/* Cards */
+.card{background:#fff;border:1px solid #dee2e6;border-radius:6px;padding:10px 12px;margin-bottom:8px}
+.card h3{font-size:14px;margin-bottom:4px}
+.card h4{font-size:13px;margin-bottom:4px}
+.card-id{font-weight:600;font-size:11px;margin-right:6px}
+.card-id.id-goal{color:#0d6efd}
+.card-id.id-exp{color:#198754}
+.card-id.id-facet{color:#495057}
+
+/* Chips / labels */
+.chip{display:inline-block;background:#e9ecef;color:#495057;font-size:10px;
+  padding:1px 6px;border-radius:8px;margin-right:4px}
+.chip-priority{background:#fff3cd;color:#664d03}
+
+/* Status badges */
+.status-passing{display:inline-block;background:#d1e7dd;color:#0f5132;font-size:10px;
+  padding:1px 6px;border-radius:8px}
+.status-failing{display:inline-block;background:#f8d7da;color:#842029;font-size:10px;
+  padding:1px 6px;border-radius:8px}
+.status-untested{display:inline-block;background:#e9ecef;color:#495057;font-size:10px;
+  padding:1px 6px;border-radius:8px}
+
+/* Meta rows */
+.meta-row{font-size:11px;color:#6c757d;margin:2px 0}
+.meta-row .label{font-weight:600;margin-right:4px}
+.meta-row .val{color:#212529}
+.meta-row a{color:#0d6efd;text-decoration:none}
+
+/* Hierarchy indentation */
+.exp-group{margin-left:16px;margin-bottom:8px}
+.facet-group{margin-left:16px}
+
+/* Highlight */
+mark{background:#fff3cd;padding:0 2px;border-radius:2px}
+
+/* Files tab */
+.file-tree{margin:8px 0}
+.file-dir{font-weight:600;font-size:12px;color:#495057;margin:6px 0 2px;cursor:pointer}
+.file-entry{font-size:12px;margin-left:16px;padding:2px 0}
+.file-entry .fpath{font-family:monospace;color:#0d6efd;font-size:11px}
+.file-entry .fids{color:#6c757d;font-size:11px}
+
+/* File link (clickable file paths) */
+.file-link{font-family:monospace;color:#0d6efd;font-size:11px;cursor:pointer;text-decoration:none}
+.file-link:hover{text-decoration:underline}
+
+/* File detail view */
+.file-detail-back{font-size:12px;color:#0d6efd;cursor:pointer;margin-bottom:8px;display:inline-block}
+.file-detail-back:hover{text-decoration:underline}
+.file-detail-title{font-size:14px;font-weight:600;margin-bottom:4px;font-family:monospace}
+.file-detail-count{font-size:12px;color:#6c757d;margin-bottom:12px}
+
+/* Stats */
+.stat-cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.stat-card{background:#fff;border:1px solid #dee2e6;border-radius:6px;padding:12px 16px;min-width:120px;text-align:center}
+.stat-card .num{font-size:28px;font-weight:700}
+.stat-card .lbl{font-size:11px;color:#6c757d}
+.stat-card.sc-goal .num{color:#0d6efd}
+.stat-card.sc-exp .num{color:#198754}
+.stat-card.sc-facet .num{color:#495057}
+
+/* Bar chart (SVG-based) */
+.bar-chart{margin:12px 0}
+.bar-chart svg{display:block}
+.chart-title{font-size:13px;font-weight:600;margin-bottom:4px}
+
+/* Goal completion bars */
+.completion-bar-wrap{margin:4px 0;display:flex;align-items:center;gap:8px}
+.completion-bar-label{font-size:11px;min-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.completion-bar-outer{flex:1;height:14px;background:#e9ecef;border-radius:3px;overflow:hidden}
+.completion-bar-inner{height:100%;border-radius:3px}
+.completion-bar-pct{font-size:11px;min-width:36px;text-align:right}
+
+/* File autocomplete */
+.autocomplete-wrap{position:relative}
+.autocomplete-list{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ced4da;
+  border-top:none;border-radius:0 0 4px 4px;max-height:200px;overflow-y:auto;z-index:50;display:none}
+.autocomplete-list.show{display:block}
+.autocomplete-item{padding:4px 8px;font-size:12px;cursor:pointer;font-family:monospace}
+.autocomplete-item:hover,.autocomplete-item.active{background:#e7f1ff}
+
+/* Matrix table */
+.matrix-table{border-collapse:collapse;font-size:11px;margin:8px 0}
+.matrix-table th,.matrix-table td{border:1px solid #dee2e6;padding:3px 6px;text-align:center}
+.matrix-table th{background:#f8f9fa;font-weight:600;position:sticky;top:0}
+.matrix-table td.has-facets{background:#d1e7dd;color:#0f5132;cursor:help}
+.matrix-table .row-label{text-align:left;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis}
+
+/* Scrollable wrapper */
+.scroll-x{overflow-x:auto}
+
+/* Hidden */
+.hidden{display:none!important}
+
+/* Collapsible facet toggle */
+.facet-toggle{
+  display:flex;align-items:center;gap:6px;
+  padding:4px 8px;margin:4px 0 2px 16px;
+  font-size:11px;color:#6c757d;cursor:pointer;
+  border-radius:4px;user-select:none;
+}
+.facet-toggle:hover{background:#f0f0f0}
+.facet-toggle .toggle-arrow{
+  display:inline-block;transition:transform 0.15s ease;
+  font-size:10px;width:12px;text-align:center;
+}
+.facet-toggle .toggle-arrow.expanded{transform:rotate(90deg)}
+.facet-toggle .toggle-summary{font-weight:500}
+.facet-toggle .toggle-status{margin-left:auto}
+
+/* Collapsed facet group */
+.facet-group.collapsed{display:none}
+
+/* Expand/Collapse all controls */
+.hierarchy-controls{display:flex;gap:4px}
+.hierarchy-controls button{
+  font-size:10px;padding:2px 8px;border:1px solid #ced4da;
+  border-radius:3px;background:#fff;cursor:pointer;color:#495057;
+}
+.hierarchy-controls button:hover{background:#e9ecef}
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:#f8f9fa;color:#212529;font-size:13px;line-height:1.5}
+
+/* Top bar */
+.top-bar{background:#fff;border-bottom:1px solid #dee2e6;padding:8px 16px;position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.top-bar h1{font-size:16px;white-space:nowrap}
+.top-bar .search-box{flex:0 0 260px}
+.top-bar .search-box input{width:100%;font-size:12px;padding:4px 8px;border:1px solid #ced4da;border-radius:4px}
+.top-bar .search-box input.invalid{border-color:#dc3545}
+.top-bar .counts{margin-left:auto;font-size:11px;color:#6c757d;white-space:nowrap}
+.top-bar .counts span{font-weight:600;margin-right:8px}
+.top-bar .counts .c-goal{color:#0d6efd}
+.top-bar .counts .c-exp{color:#198754}
+.top-bar .counts .c-facet{color:#495057}
+
+/* View tabs in top bar */
+.view-tabs{display:flex;gap:0}
+.view-tab{padding:4px 14px;font-size:12px;font-weight:600;border:1px solid #ced4da;
+  background:#fff;cursor:pointer;color:#6c757d;border-right:none}
+.view-tab:first-child{border-radius:4px 0 0 4px}
+.view-tab:last-child{border-radius:0 4px 4px 0;border-right:1px solid #ced4da}
+.view-tab:hover{background:#e9ecef;color:#212529}
+.view-tab.active{background:#0d6efd;color:#fff;border-color:#0d6efd}
+
+/* Layout: sidebar + content area */
+.layout{display:flex;min-height:calc(100vh - 42px)}
+.sidebar{width:175px;min-width:175px;background:#fff;border-right:1px solid #dee2e6;
+  position:sticky;top:42px;height:calc(100vh - 42px);overflow-y:auto;padding:8px}
+
+/* View content areas */
+.view-content{flex:1;min-width:0;display:flex;flex-direction:column}
+.view-hidden{display:none!important}
+
+/* Catalog view: 2-column multi-panel grid */
+.main-grid{
+  flex:1;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  grid-template-rows:1fr 1fr;
+  gap:1px;
+  background:#dee2e6;
+  height:calc(100vh - 42px);
+}
+.panel{overflow:hidden;background:#fff;display:flex;flex-direction:column}
+.panel-header{font-size:12px;font-weight:600;color:#495057;padding:6px 12px;
+  border-bottom:1px solid #dee2e6;background:#f8f9fa;flex-shrink:0;
+  display:flex;align-items:center;gap:8px}
+.panel-body{overflow-y:auto;padding:8px 12px;flex:1;min-height:0}
+
+.panel-hierarchy{grid-column:1;grid-row:1/3}
+.panel-files{grid-column:2;grid-row:1}
+.panel-stats{grid-column:2;grid-row:2}
+
+/* Preview view: full-size dark panel */
+.preview-full{
+  flex:1;display:flex;flex-direction:column;
+  background:#1e1e1e;height:calc(100vh - 42px);
+}
+
+/* Sidebar goal cards */
+.goal-card{padding:6px 8px;margin-bottom:4px;border-radius:4px;cursor:pointer;
+  border-left:3px solid transparent;font-size:12px}
+.goal-card:hover{background:#e9ecef}
+.goal-card.active{background:#e7f1ff;border-left-color:#0d6efd}
+.goal-card .gid{font-weight:600;color:#0d6efd;font-size:11px}
+.goal-card .gname{font-weight:500}
+.goal-card .gmeta{color:#6c757d;font-size:11px}
+.goal-card .match-count{background:#0d6efd;color:#fff;border-radius:8px;padding:0 5px;font-size:10px;float:right}
+
+/* LLM Preview controls */
+.preview-controls{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px;
+  align-items:flex-end;background:#252526;border-bottom:1px solid #3c3c3c}
+.preview-controls .ctrl-group{display:flex;flex-direction:column;gap:2px}
+.preview-controls .ctrl-group label{font-size:10px;color:#999;font-weight:600;text-transform:uppercase}
+.preview-controls select,.preview-controls input[type=text],.preview-controls input[type=number]{
+  font-size:12px;padding:4px 8px;border:1px solid #555;border-radius:4px;
+  background:#1e1e1e;color:#d4d4d4}
+.preview-controls select{min-width:200px}
+.btn-generate{background:#0d6efd;color:#fff;border:none;padding:6px 16px;border-radius:4px;
+  cursor:pointer;font-size:12px;font-weight:600;align-self:flex-end}
+.btn-generate:hover{background:#0b5ed7}
+
+/* Preview output area */
+.preview-output{background:#1e1e1e;color:#d4d4d4;
+  font-family:'Cascadia Code','Fira Code',Consolas,monospace;
+  font-size:12px;padding:20px 24px;white-space:pre-wrap;word-break:break-word;
+  flex:1;overflow-y:auto;line-height:1.6}
+
+/* Syntax highlight colors (dark theme) */
+.hl-delimiter{color:#569cd6}
+.hl-goal-id{color:#4fc1ff}
+.hl-exp-id{color:#6a9955}
+.hl-facet-id{color:#d4d4d4}
+.hl-type-g{color:#4fc1ff;font-weight:bold}
+.hl-type-e{color:#6a9955;font-weight:bold}
+.hl-type-f{color:#d4d4d4;font-weight:bold}
+.hl-status-pass{color:#4ec9b0}
+.hl-status-fail{color:#f44747}
+.hl-status-untested{color:#808080}
+.hl-filepath{color:#ce9178}
+.hl-keyword{color:#c586c0}
+
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h1>BDD Catalog Explorer</h1>
+  <div class="view-tabs">
+    <button class="view-tab active" data-view="catalog">Catalog</button>
+    <button class="view-tab" data-view="preview">LLM Preview</button>
+  </div>
+  <div class="search-box" id="searchBoxWrap">
+    <input type="text" id="searchInput" placeholder="Search (regex)..." />
+  </div>
+  <div class="counts" id="topCounts"></div>
+</div>
+
+<div class="layout">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="view-content" id="viewCatalog">
+    <div class="main-grid">
+      <div class="panel panel-hierarchy">
+        <div class="panel-header">Hierarchy <span id="hierarchyControls"></span></div>
+        <div class="panel-body" id="hierarchyContent"></div>
+      </div>
+      <div class="panel panel-files">
+        <div class="panel-header">Files</div>
+        <div class="panel-body" id="filesContent"></div>
+      </div>
+      <div class="panel panel-stats">
+        <div class="panel-header">Stats</div>
+        <div class="panel-body" id="statsContent"></div>
+      </div>
+    </div>
+  </div>
+  <div class="view-content view-hidden" id="viewPreview">
+    <div class="preview-full" id="previewContent"></div>
+  </div>
+</div>
+
+<script>
+var DATA = {"catalog": {"version": 1, "nodes": [{"id": "g-001", "type": "goal", "text": "Project Management", "parent": null, "priority": 1, "labels": ["core"]}, {"id": "e-001", "type": "expectation", "text": "CRUD operations for projects including create, read, update, delete, and listing", "parent": "g-001", "priority": 1, "labels": ["persistence"]}, {"id": "f-001", "type": "facet", "text": "ProjectManager.create_project generates a unique 8-char UUID, constructs a default AppConfig, calls save_project, and returns the new Project. Located in backend/project_manager.py:ProjectManager.create_project.", "parent": "e-001", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-002", "type": "facet", "text": "ProjectManager.get_project loads a YAML file from disk, validates it with Project.model_validate, caches the result in self._cache, and returns None if the file does not exist or fails to parse. Located in backend/project_manager.py:ProjectManager.get_project.", "parent": "e-001", "test": "tests/test_sample_projects.py::TestSimpleAgent::test_parses_to_project", "status": "untested"}, {"id": "f-003", "type": "facet", "text": "ProjectManager.save_project serializes a Project via model_dump(mode='json'), writes it as YAML using yaml.safe_dump, updates the in-memory cache, and triggers _save_custom_tools and _save_custom_callbacks to write Python files to disk. Located in backend/project_manager.py:ProjectManager.save_project.", "parent": "e-001", "test": "tests/test_callbacks.py::TestCallbackLoading::test_callback_file_created_on_disk", "status": "untested"}, {"id": "f-004", "type": "facet", "text": "ProjectManager.delete_project removes the YAML file with path.unlink, deletes the tools directory tree via shutil.rmtree, and clears the cache entry. Returns True on success. Located in backend/project_manager.py:ProjectManager.delete_project.", "parent": "e-001", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-005", "type": "facet", "text": "ProjectManager.list_projects globs for *.yaml files in the projects directory, loads each with yaml.safe_load, and returns a list of dicts with id, name, and description fields. Silently skips files that fail to parse. Located in backend/project_manager.py:ProjectManager.list_projects.", "parent": "e-001", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "e-002", "type": "expectation", "text": "YAML import/export allows projects to be serialized to and deserialized from YAML strings", "parent": "g-001", "priority": 2, "labels": ["serialization"]}, {"id": "f-006", "type": "facet", "text": "ProjectManager.get_project_yaml converts the project to a dict, rewrites callback module_paths to include function names (e.g. 'callbacks.custom' becomes 'callbacks.custom.set_foo'), and returns a YAML string. Located in backend/project_manager.py:ProjectManager.get_project_yaml.", "parent": "e-002", "test": "tests/test_project_parsing.py::TestProjectParsing::test_callback_config_parsing", "status": "untested"}, {"id": "f-007", "type": "facet", "text": "ProjectManager.update_project_from_yaml parses a YAML string, preserves the original project_id, converts full callback paths (module.path.function_name) back to module-only paths for internal storage, validates via Project.model_validate, and saves. Located in backend/project_manager.py:ProjectManager.update_project_from_yaml.", "parent": "e-002", "test": "tests/test_project_parsing.py::TestProjectParsing::test_custom_callback_definition_parsing", "status": "untested"}, {"id": "e-003", "type": "expectation", "text": "Backup system creates gzipped snapshots of projects on change and supports restore", "parent": "g-001", "priority": 3, "labels": ["backup"]}, {"id": "f-008", "type": "facet", "text": "ProjectManager._backup_project computes an MD5 hash of the current YAML file, compares it to the last known hash, creates a timestamped gzipped backup only if the content changed, and calls _cleanup_old_backups to keep at most 50 backups per project. Located in backend/project_manager.py:ProjectManager._backup_project.", "parent": "e-003", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-009", "type": "facet", "text": "ProjectManager.restore_backup reads a gzipped backup, parses and validates it as a Project, preserves the original project_id, and saves it as the current project. Returns the restored Project or None on failure. Located in backend/project_manager.py:ProjectManager.restore_backup.", "parent": "e-003", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-010", "type": "facet", "text": "ProjectManager._backup_loop is an async background task that runs every 60 seconds, iterating over all *.yaml project files and calling _backup_project for each. Started via start_backup_service and stopped via stop_backup_service. Located in backend/project_manager.py:ProjectManager._backup_loop.", "parent": "e-003", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-011", "type": "facet", "text": "ProjectManager._save_custom_tools groups custom tools by module_path, creates directory structures with __init__.py files, and writes Python source files with tool code, descriptions, and state key annotations. Located in backend/project_manager.py:ProjectManager._save_custom_tools.", "parent": "e-001", "test": "tests/test_sample_projects.py::TestToolAgent::test_custom_tool_definition", "status": "untested"}, {"id": "f-012", "type": "facet", "text": "ProjectManager._save_custom_callbacks groups callbacks by module prefix, creates a callbacks/ directory with proper Python module structure, and writes callback code files with auto-generated headers and imports for CallbackContext and LlmResponse. Located in backend/project_manager.py:ProjectManager._save_custom_callbacks.", "parent": "e-001", "test": "tests/test_callbacks.py::TestCallbackLoading::test_callback_file_created_on_disk", "status": "untested"}, {"id": "g-002", "type": "goal", "text": "Data Models", "parent": null, "priority": 2, "labels": ["core"]}, {"id": "e-004", "type": "expectation", "text": "Pydantic models correctly represent agent configurations including LLM, Sequential, Loop, and Parallel agent types", "parent": "g-002", "priority": 1, "labels": ["models"]}, {"id": "f-013", "type": "facet", "text": "LlmAgentConfig is a Pydantic model with type literal 'LlmAgent', supporting id, name, instruction, optional ModelConfig, output_key, include_contents, disallow_transfer flags, tools list (ToolConfig union), sub_agents list, and six callback config lists (before/after agent/model/tool). Located in backend/models.py:LlmAgentConfig.", "parent": "e-004", "test": "tests/test_project_parsing.py::TestProjectParsing::test_agent_config_parsing", "status": "untested"}, {"id": "f-014", "type": "facet", "text": "SequentialAgentConfig defines a non-LLM orchestrator with type 'SequentialAgent', id, name, description, sub_agents list, and before/after agent callbacks. Runs sub-agents in declared order. Located in backend/models.py:SequentialAgentConfig.", "parent": "e-004", "test": "tests/test_project_parsing.py::TestProjectParsing::test_sequential_agent_parsing", "status": "untested"}, {"id": "f-015", "type": "facet", "text": "LoopAgentConfig extends the non-LLM orchestrator pattern with an optional max_iterations field. Repeatedly runs its sub-agents until max_iterations is reached or an exit_loop tool is called. Located in backend/models.py:LoopAgentConfig.", "parent": "e-004", "test": "tests/test_project_parsing.py::TestProjectParsing::test_loop_agent_parsing", "status": "untested"}, {"id": "f-016", "type": "facet", "text": "ParallelAgentConfig defines a non-LLM orchestrator with type 'ParallelAgent' that runs all sub-agents concurrently. Supports before/after agent callbacks. Located in backend/models.py:ParallelAgentConfig.", "parent": "e-004", "test": "tests/test_integration.py::TestNonLlmAgentCallbacks::test_parallel_agent_callback_executed", "status": "untested"}, {"id": "e-005", "type": "expectation", "text": "Tool configuration models cover all tool types: function, MCP, agent, builtin, and skillset", "parent": "g-002", "priority": 2, "labels": ["models"]}, {"id": "f-017", "type": "facet", "text": "ToolConfig is a Union of FunctionToolConfig (module_path reference), MCPToolConfig (wraps MCPServerConfig), AgentToolConfig (agent_id + skip_summarization), BuiltinToolConfig (name like 'google_search' or 'exit_loop'), and SkillSetToolConfig (skillset_id). Discriminated by the 'type' literal field. Located in backend/models.py:ToolConfig.", "parent": "e-005", "test": "tests/test_project_parsing.py::TestProjectParsing::test_builtin_tool_parsing", "status": "untested"}, {"id": "f-018", "type": "facet", "text": "MCPServerConfig defines an MCP server connection with connection_type (stdio/sse/http), command and args for stdio, url and headers for sse/http, optional tool_filter list and tool_name_prefix for filtering, and a configurable timeout. Located in backend/models.py:MCPServerConfig.", "parent": "e-005", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "e-006", "type": "expectation", "text": "Runtime and evaluation models correctly serialize events, sessions, and evaluation results", "parent": "g-002", "priority": 2, "labels": ["models"]}, {"id": "f-019", "type": "facet", "text": "RunEvent is a Pydantic model with timestamp, event_type (one of agent_start/end, tool_call/result, model_call/response, state_change, transfer, callback_start/end/error, user_message), agent_name, optional branch for parallel tracking, and a data dict. Located in backend/models.py:RunEvent.", "parent": "e-006", "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_emits_events", "status": "untested"}, {"id": "f-020", "type": "facet", "text": "RunSession tracks a complete run with id, project_id, started_at/ended_at timestamps, status (running/completed/error), events list, final_state dict, and token_counts dict. Located in backend/models.py:RunSession.", "parent": "e-006", "test": "tests/test_runtime.py::TestRunAgent::test_run_agent_creates_session", "status": "untested"}, {"id": "f-021", "type": "facet", "text": "EvalSet, EvalCase, EvalInvocation, and EvalCaseResult form a hierarchy for evaluation. EvalSet has eval_cases and eval_config. EvalCase has invocations, initial_state, and expected_final_state. EvalInvocation has user_message, expected_response, expected_tool_calls with match type, and rubrics. Located in backend/models.py:EvalSet/EvalCase/EvalInvocation.", "parent": "e-006", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-022", "type": "facet", "text": "ModelConfig supports provider-specific settings: provider literal (gemini/litellm/anthropic/openai/groq/together), model_name, optional api_base for LiteLLM, generation params (temperature, max_output_tokens, top_p, top_k), and retry/timeout settings. Uses populate_by_name for alias support. Located in backend/models.py:ModelConfig.", "parent": "e-006", "test": "tests/test_project_parsing.py::TestProjectParsing::test_model_config_parsing", "status": "untested"}, {"id": "g-003", "type": "goal", "text": "Code Generation", "parent": null, "priority": 3, "labels": ["core"]}, {"id": "e-007", "type": "expectation", "text": "generate_python_code produces valid, executable Python from a Project configuration", "parent": "g-003", "priority": 1, "labels": ["codegen"]}, {"id": "f-023", "type": "facet", "text": "generate_python_code performs a topological sort of agents (sub-agents and agent-tools before parents) to ensure correct definition order, collects required imports (Agent, SequentialAgent, LoopAgent, ParallelAgent, LiteLlm, Claude, McpToolset, etc.), and generates a complete executable script ending with an App() instantiation. Located in backend/code_generator.py:generate_python_code.", "parent": "e-007", "test": "tests/test_project_parsing.py::TestCodeGeneration::test_generate_code_includes_agent", "status": "untested"}, {"id": "f-024", "type": "facet", "text": "generate_agent_code generates Agent() constructor calls for LlmAgentConfig with name, model, instruction (triple-quoted), description, output_key, tools list, sub_agents, include_contents, transfer flags, and callback wrappers using _wrap_callback for instrumentation. Located in backend/code_generator.py:generate_agent_code.", "parent": "e-007", "test": "tests/test_project_parsing.py::TestCodeGeneration::test_generate_code_includes_agent", "status": "untested"}, {"id": "f-025", "type": "facet", "text": "generate_agent_code produces SequentialAgent(), LoopAgent(max_iterations=N), and ParallelAgent() calls for non-LLM orchestrator types, each with sub_agents list and optional before/after agent callbacks wrapped with _wrap_callback. Located in backend/code_generator.py:generate_agent_code (SequentialAgent/LoopAgent/ParallelAgent branches).", "parent": "e-007", "test": "tests/test_project_parsing.py::TestCodeGeneration::test_generate_sequential_agent_code", "status": "untested"}, {"id": "f-026", "type": "facet", "text": "generate_model_code produces provider-specific model instantiation: plain string for Gemini, LiteLlm() with retries/timeout for litellm/openai/groq/together, and Claude() for anthropic. Includes temperature, max_output_tokens, top_p, top_k, api_base where set. Located in backend/code_generator.py:generate_model_code.", "parent": "e-007", "test": "tests/test_project_parsing.py::TestCodeGeneration::test_generate_code_includes_agent", "status": "untested"}, {"id": "f-027", "type": "facet", "text": "generate_tool_code dispatches on tool type: builtin returns the tool name directly, function returns the function name, agent returns AgentTool(agent=var_name), mcp returns a sanitized variable reference, and skillset returns a skillset variable reference. Located in backend/code_generator.py:generate_tool_code.", "parent": "e-007", "test": "tests/test_project_parsing.py::TestCodeGeneration::test_generate_code_with_builtin_tool", "status": "untested"}, {"id": "e-008", "type": "expectation", "text": "MCP and SkillSet toolset code is correctly generated with connection params and proxy injection", "parent": "g-003", "priority": 2, "labels": ["codegen", "mcp"]}, {"id": "f-028", "type": "facet", "text": "generate_mcp_toolset_code produces McpToolset() with StdioConnectionParams for stdio servers, injecting proxy environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) and Docker Chrome args for browser MCP servers (chrome-devtools-mcp). SSE servers use SseConnectionParams with url and timeout. Located in backend/code_generator.py:generate_mcp_toolset_code.", "parent": "e-008", "test": "tests/test_project_parsing.py::TestCodeGeneration::test_generate_loop_agent_code", "status": "untested"}, {"id": "f-029", "type": "facet", "text": "generate_skillset_code produces a KnowledgeServiceManager instance and SkillSet() constructor call with skillset_id, project_id, manager, embedding model name, search_enabled, preload_enabled, preload_top_k, and preload_min_score settings. Located in backend/code_generator.py:generate_skillset_code.", "parent": "e-008", "test": "tests/test_project_parsing.py::TestProjectValidation::test_project_generates_valid_code", "status": "untested"}, {"id": "f-030", "type": "facet", "text": "sanitize_identifier replaces any non-alphanumeric/underscore characters with underscores and prefixes with _ if the name starts with a digit, ensuring all generated variable names are valid Python identifiers. escape_triple_quoted and escape_double_quoted handle string escaping for generated code. Located in backend/code_generator.py:sanitize_identifier/escape_triple_quoted/escape_double_quoted.", "parent": "e-007", "test": "tests/test_project_parsing.py::TestProjectValidation::test_project_generates_valid_code", "status": "untested"}, {"id": "f-031", "type": "facet", "text": "The topological sort in generate_python_code uses a DFS with cycle guard (visiting set) to handle circular agent references. It visits sub-agents and agent-tool dependencies before the parent agent, ensuring all referenced variables are defined before use. Located in backend/code_generator.py:generate_python_code (visit_agent closure).", "parent": "e-007", "test": "tests/test_runtime.py::TestRunAgent::test_generated_code_includes_all_agents", "status": "untested"}, {"id": "f-032", "type": "facet", "text": "generate_python_code emits a _wrap_callback helper function that instruments sync and async callbacks with timing and event tracking via state keys (_cb_start_ and _cb_end_ prefixed). This wrapper is injected right after imports when custom_callbacks exist. Located in backend/code_generator.py:generate_python_code (callback wrapper section).", "parent": "e-007", "test": "tests/test_callbacks.py::TestCallbackErrors::test_callback_module_not_found_generates_code", "status": "untested"}, {"id": "g-004", "type": "goal", "text": "Runtime Execution", "parent": null, "priority": 4, "labels": ["core"]}, {"id": "e-009", "type": "expectation", "text": "RuntimeManager initializes correctly, manages sessions, and executes generated agent code", "parent": "g-004", "priority": 1, "labels": ["runtime"]}, {"id": "f-033", "type": "facet", "text": "RuntimeManager.__init__ takes a projects_dir path, creates the directory if needed, and initializes empty dicts for sessions and _running flags. The projects_dir is stored as a Path object. Located in backend/runtime.py:RuntimeManager.__init__.", "parent": "e-009", "test": "tests/test_runtime.py::TestRuntimeManagerInit::test_runtime_manager_creates_projects_dir", "status": "untested"}, {"id": "f-034", "type": "facet", "text": "RuntimeManager.get_session returns the RunSession for a given session_id from the in-memory sessions dict, or None if the session does not exist. Located in backend/runtime.py:RuntimeManager.get_session.", "parent": "e-009", "test": "tests/test_runtime.py::TestRuntimeManagerInit::test_get_nonexistent_session_returns_none", "status": "untested"}, {"id": "f-035", "type": "facet", "text": "RuntimeManager.stop_run sets _running[session_id] to False, signaling the run_agent loop to stop at the next iteration. Located in backend/runtime.py:RuntimeManager.stop_run.", "parent": "e-009", "test": "tests/test_runtime.py::TestRuntimeManagerInit::test_stop_run_sets_flag", "status": "untested"}, {"id": "f-036", "type": "facet", "text": "RuntimeManager._execute_generated_code calls generate_python_code to produce a script, executes it via exec() in an isolated namespace, and extracts the 'app' variable from the namespace. Returns the constructed ADK App object. Located in backend/runtime.py:RuntimeManager._execute_generated_code.", "parent": "e-009", "test": "tests/test_project_parsing.py::TestCodeExecution::test_execute_code_produces_app", "status": "untested"}, {"id": "f-037", "type": "facet", "text": "RuntimeManager._prepare_temp_dir creates a temporary directory for a session, writes custom tool and callback Python files from the project's custom_tools and custom_callbacks code fields, creates __init__.py files, and adds the temp dir to sys.path for import resolution. Located in backend/runtime.py:RuntimeManager._prepare_temp_dir.", "parent": "e-009", "test": "tests/test_project_parsing.py::TestCodeExecution::test_execute_code_produces_app", "status": "untested"}, {"id": "e-010", "type": "expectation", "text": "TrackingPlugin emits structured events for all agent lifecycle phases", "parent": "g-004", "priority": 1, "labels": ["runtime", "tracking"]}, {"id": "f-038", "type": "facet", "text": "TrackingPlugin.before_agent_callback creates and emits a RunEvent with event_type='agent_start', capturing the agent name and instruction. Returns None to allow agent execution to proceed. Located in backend/runtime.py:TrackingPlugin.before_agent_callback.", "parent": "e-010", "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_emits_events", "status": "untested"}, {"id": "f-039", "type": "facet", "text": "TrackingPlugin.after_agent_callback emits a RunEvent with event_type='agent_end' and the agent name. Returns None. Located in backend/runtime.py:TrackingPlugin.after_agent_callback.", "parent": "e-010", "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_after_agent", "status": "untested"}, {"id": "f-040", "type": "facet", "text": "TrackingPlugin.before_model_callback emits a RunEvent with event_type='model_call' including the tool_count from llm_request.tools_dict. Returns None. Located in backend/runtime.py:TrackingPlugin.before_model_callback.", "parent": "e-010", "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_model_callbacks", "status": "untested"}, {"id": "f-041", "type": "facet", "text": "TrackingPlugin.before_tool_callback emits a RunEvent with event_type='tool_call', capturing tool_name and args. TrackingPlugin.after_tool_callback emits event_type='tool_result' with the result value and any state_delta. Both return None. Located in backend/runtime.py:TrackingPlugin.before_tool_callback/after_tool_callback.", "parent": "e-010", "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_tool_callbacks", "status": "untested"}, {"id": "f-042", "type": "facet", "text": "TrackingPlugin._serialize_contents converts ADK Content objects to JSON-serializable dicts, handling text parts (type='text'), function_call parts (type='function_call' with name and args), function_response parts, and thought parts. Located in backend/runtime.py:TrackingPlugin._serialize_contents.", "parent": "e-010", "test": "tests/test_runtime.py::TestEventSerialization::test_serialize_text_content", "status": "untested"}, {"id": "e-011", "type": "expectation", "text": "run_agent drives a full execution loop with event streaming, session creation, and service factory usage", "parent": "g-004", "priority": 1, "labels": ["runtime"]}, {"id": "f-043", "type": "facet", "text": "RuntimeManager.run_agent is an async generator that creates a RunSession, prepares the temp dir, executes generated code to get the App, creates session/memory/artifact services via factory functions, runs the ADK Runner, yields RunEvents through the event_callback, and cleans up on completion or error. Located in backend/runtime.py:RuntimeManager.run_agent.", "parent": "e-011", "test": "tests/test_integration.py::TestCallbackExecution::test_before_agent_callback_executed", "status": "untested"}, {"id": "f-044", "type": "facet", "text": "create_session_service_from_uri dispatches on URI scheme: memory:// returns InMemorySessionService, sqlite:// returns SqliteSessionService, postgresql:///mysql:// returns DatabaseSessionService, agentengine:// returns VertexAiSessionService, file:// returns FileSessionService. Falls back to InMemorySessionService on import error. Located in backend/runtime.py:create_session_service_from_uri.", "parent": "e-011", "test": "tests/test_runtime.py::TestSessionManagement::test_list_sessions_from_service", "status": "untested"}, {"id": "g-005", "type": "goal", "text": "API Routes", "parent": null, "priority": 5, "labels": ["core"]}, {"id": "e-012", "type": "expectation", "text": "FastAPI routes expose project CRUD, agent management, tool management, and run endpoints", "parent": "g-005", "priority": 1, "labels": ["api"]}, {"id": "f-045", "type": "facet", "text": "GET /api/projects returns project_manager.list_projects(). POST /api/projects creates via project_manager.create_project(name, description). GET /api/projects/{id} loads via project_manager.get_project(id) and raises 404 if not found. DELETE /api/projects/{id} deletes via project_manager.delete_project(id). Located in backend/main.py (project CRUD routes).", "parent": "e-012", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-046", "type": "facet", "text": "PUT /api/projects/{id} accepts a full project JSON body, validates it as a Project model, and calls project_manager.save_project. Returns the updated project. Located in backend/main.py (PUT /api/projects/{id}).", "parent": "e-012", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-047", "type": "facet", "text": "GET/PUT /api/projects/{id}/yaml endpoints export and import projects as YAML strings using project_manager.get_project_yaml and update_project_from_yaml respectively. Located in backend/main.py (YAML routes).", "parent": "e-012", "test": "tests/test_project_parsing.py::TestProjectParsing::test_callback_config_parsing", "status": "untested"}, {"id": "f-048", "type": "facet", "text": "Agent CRUD routes: GET /api/projects/{id}/agents lists all agents, POST creates a new agent (LlmAgent, SequentialAgent, LoopAgent, or ParallelAgent based on the type field), PUT /api/projects/{id}/agents/{agent_id} updates an agent, DELETE removes an agent. All persist via project_manager.save_project. Located in backend/main.py (agent routes).", "parent": "e-012", "test": "tests/test_project_parsing.py::TestProjectParsing::test_agent_config_parsing", "status": "untested"}, {"id": "f-049", "type": "facet", "text": "Tool CRUD routes: GET /api/projects/{id}/tools lists custom tools, POST /api/projects/{id}/tools creates a new CustomToolDefinition, PUT updates tool code/metadata, DELETE removes a tool and its references from agents. Located in backend/main.py (tool routes).", "parent": "e-012", "test": "tests/test_sample_projects.py::TestToolAgent::test_tool_configuration", "status": "untested"}, {"id": "e-013", "type": "expectation", "text": "WebSocket and HTTP run endpoints stream agent execution events in real-time", "parent": "g-005", "priority": 1, "labels": ["api", "websocket"]}, {"id": "f-050", "type": "facet", "text": "WebSocket endpoint /ws/run accepts a connection, receives a JSON message with project_id and user_message, loads the project, and streams RunEvents from runtime_manager.run_agent as JSON over the WebSocket. Handles disconnection and errors gracefully. Located in backend/main.py (WebSocket /ws/run).", "parent": "e-013", "test": "tests/test_integration.py::TestCallbackExecution::test_before_agent_callback_executed", "status": "untested"}, {"id": "f-051", "type": "facet", "text": "POST /api/run is an HTTP alternative to the WebSocket that accepts project_id, user_message, and optional session_id, runs the agent synchronously via runtime_manager.run_agent, collects all events, and returns the complete list of RunEvents. Located in backend/main.py (POST /api/run).", "parent": "e-013", "test": "tests/test_integration.py::TestCallbackExecution::test_before_agent_callback_executed", "status": "untested"}, {"id": "f-052", "type": "facet", "text": "MCPConnectionPool manages persistent MCP server connections with a dict-based cache keyed by server configuration (command+args for stdio, url for sse/http). Includes async locking, last-access tracking, and a cleanup task to close idle connections. Located in backend/main.py:MCPConnectionPool.", "parent": "e-013", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "e-014", "type": "expectation", "text": "API provides model listing and MCP tool discovery endpoints", "parent": "g-005", "priority": 2, "labels": ["api"]}, {"id": "f-053", "type": "facet", "text": "GET /api/models/list calls list_all_models to query each provider (Gemini, Anthropic, OpenAI, Groq, Together, Ollama) in parallel, returning ProviderModels with available model info. Located in backend/main.py (GET /api/models/list).", "parent": "e-014", "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration", "status": "untested"}, {"id": "f-054", "type": "facet", "text": "POST /api/mcp/tools accepts an MCP server config, creates a toolset via MCPConnectionPool.get_toolset, calls get_tools() to discover available tools, and returns their declarations as JSON. POST /api/mcp/call invokes a specific tool and returns the result. Located in backend/main.py (MCP routes).", "parent": "e-014", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-055", "type": "facet", "text": "AI-assisted generation endpoints: POST /api/ai/generate-agent uses an LLM to generate agent configurations from a natural language description. POST /api/ai/generate-tool generates custom tool code. These call backend/agent_runner.py:run_agent with appropriate prompts. Located in backend/main.py (AI generation routes).", "parent": "e-014", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-056", "type": "facet", "text": "Backup routes: GET /api/projects/{id}/backups lists available backups via project_manager.list_backups. POST /api/projects/{id}/backups/{filename}/restore restores a project from a backup via project_manager.restore_backup. Located in backend/main.py (backup routes).", "parent": "e-014", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "g-006", "type": "goal", "text": "Evaluation System", "parent": null, "priority": 6, "labels": ["evaluation"]}, {"id": "e-015", "type": "expectation", "text": "EvaluationService runs eval sets with ROUGE scoring and trajectory matching", "parent": "g-006", "priority": 1, "labels": ["evaluation"]}, {"id": "f-057", "type": "facet", "text": "EvaluationService.run_eval_set iterates over each EvalCase in an EvalSet, runs it via run_eval_case, collects EvalCaseResults, computes overall pass rate and per-metric average scores, and returns an EvalSetResult with timing information. Located in backend/evaluation_service.py:EvaluationService.run_eval_set.", "parent": "e-015", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-058", "type": "facet", "text": "EvaluationService.run_eval_case runs each invocation in an EvalCase sequentially via _run_invocation, collecting InvocationResults. Checks expected_final_state against actual state if configured. Aggregates metric_results and determines pass/fail. Located in backend/evaluation_service.py:EvaluationService.run_eval_case.", "parent": "e-015", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-059", "type": "facet", "text": "RougeScorer implements ROUGE-1 unigram overlap scoring with optional Porter stemming via NLTK. Tokenizes text into lowercase words, counts overlap using Counter, and computes precision, recall, and F1. Used by ResponseEvaluator for fuzzy text matching. Located in backend/evaluation_service.py:RougeScorer.", "parent": "e-015", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-060", "type": "facet", "text": "TrajectoryEvaluator supports three match modes: EXACT (ordered exact match of tool calls), IN_ORDER (expected tools must appear in order but not necessarily consecutively), and ANY_ORDER (all expected tools must appear regardless of order). Scores between 0.0 and 1.0. Located in backend/evaluation_service.py:TrajectoryEvaluator.", "parent": "e-015", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "e-016", "type": "expectation", "text": "LLM-as-judge evaluation supports custom rubrics and prebuilt ADK metrics", "parent": "g-006", "priority": 2, "labels": ["evaluation"]}, {"id": "f-061", "type": "facet", "text": "_run_llm_judge sends evaluation prompts to a judge model (default gemini-2.5-flash) with the actual response, expected response, and rubric text, then parses the structured score and rationale. Supports safety, hallucination, and rubric-based quality metrics. Located in backend/evaluation_service.py:_run_llm_judge.", "parent": "e-016", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-062", "type": "facet", "text": "AdkEvaluationService bridges to ADK native evaluation by converting playground EvalCase/EvalInvocation models to ADK format via _convert_to_adk_invocation and _convert_to_adk_eval_case, running ADK evaluation, and converting results back via _convert_adk_result_to_ours. Located in backend/adk_evaluation_service.py:AdkEvaluationService.", "parent": "e-016", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "e-017", "type": "expectation", "text": "Eval set CRUD and run endpoints are exposed through the API", "parent": "g-006", "priority": 2, "labels": ["evaluation", "api"]}, {"id": "f-063", "type": "facet", "text": "GET/POST/PUT/DELETE /api/projects/{id}/eval-sets manage eval sets with full CRUD. POST /api/projects/{id}/eval-sets/{eval_set_id}/run triggers execution via EvaluationService or AdkEvaluationService based on configuration. Results are streamed back as EvalSetResult. Located in backend/main.py (eval-set routes).", "parent": "e-017", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-064", "type": "facet", "text": "EvalConfig holds the list of enabled EvalMetricConfig items (each with metric type, threshold, and optional judge_model_options), default_trajectory_match_type, num_runs for repeated execution, and judge_model override. Used by both EvaluationService and AdkEvaluationService. Located in backend/models.py:EvalConfig.", "parent": "e-017", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-065", "type": "facet", "text": "EvalSetResult aggregates case_results with total_cases, passed_cases, failed_cases, error_cases, per-metric pass_rates and avg_scores, overall_pass_rate, and timing. EvalCaseResult includes invocation_results, final_state comparison, and per-invocation token usage. Located in backend/models.py:EvalSetResult/EvalCaseResult.", "parent": "e-017", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-066", "type": "facet", "text": "ResponseEvaluator uses RougeScorer to compute ROUGE-1 F1 between expected and actual responses, then compares against the configured threshold. Returns a MetricResult with score, threshold, passed flag, and optional details. Located in backend/evaluation_service.py:ResponseEvaluator.", "parent": "e-015", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "g-007", "type": "goal", "text": "Model Service", "parent": null, "priority": 7, "labels": ["integration"]}, {"id": "e-018", "type": "expectation", "text": "Model service discovers and lists available models from multiple LLM providers", "parent": "g-007", "priority": 1, "labels": ["models"]}, {"id": "f-067", "type": "facet", "text": "list_gemini_models uses google.genai.Client to enumerate models, filters out embedding and non-chat models, extracts display_name, description, context_window (input_token_limit), and capability flags (supports_tools, supports_vision, supports_json_mode). Returns ProviderModels. Located in backend/model_service.py:list_gemini_models.", "parent": "e-018", "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration", "status": "untested"}, {"id": "f-068", "type": "facet", "text": "list_anthropic_models, list_openai_models, list_groq_models, list_together_models each query their respective provider APIs with the appropriate API key from environment. They return ProviderModels with model metadata including context window size and capability flags. Located in backend/model_service.py:list_*_models.", "parent": "e-018", "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration", "status": "untested"}, {"id": "f-069", "type": "facet", "text": "list_ollama_models queries the local Ollama HTTP API at the configured base URL (defaulting to http://localhost:11434), lists running and available models, and returns them as ProviderModels. Handles connection errors gracefully. Located in backend/model_service.py:list_ollama_models.", "parent": "e-018", "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration", "status": "untested"}, {"id": "f-070", "type": "facet", "text": "list_all_models runs all provider listing functions in parallel using asyncio.gather, collects ProviderModels from each, and returns the combined list. Errors from individual providers are captured in the ProviderModels.error field. Located in backend/model_service.py:list_all_models.", "parent": "e-018", "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration", "status": "untested"}, {"id": "f-071", "type": "facet", "text": "ModelInfo is a Pydantic model with id (API model name), human-readable name, provider string, description, optional context_window int, and boolean flags: supports_tools, supports_vision, supports_json_mode, supports_streaming. Used as the return type in all list functions. Located in backend/model_service.py:ModelInfo.", "parent": "e-018", "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration", "status": "untested"}, {"id": "f-072", "type": "facet", "text": "ProviderModels wraps a provider name, list of ModelInfo objects, and an optional error string. This structure allows the API to return partial results when some providers are unavailable. Located in backend/model_service.py:ProviderModels.", "parent": "e-018", "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration", "status": "untested"}, {"id": "g-008", "type": "goal", "text": "MCP Integration", "parent": null, "priority": 8, "labels": ["integration"]}, {"id": "e-019", "type": "expectation", "text": "Known MCP servers are loaded from configuration and can be discovered by the UI", "parent": "g-008", "priority": 1, "labels": ["mcp"]}, {"id": "f-073", "type": "facet", "text": "load_mcp_servers_from_file reads the mcp.json file (path from ADK_PLAYGROUND_MCP_CONFIG env or ~/.adk-playground/mcp.json), parses the standard 'mcpServers' dict format, converts each entry to MCPServerConfig with auto-detected connection_type (stdio if command present, sse/http if url present), and returns the list. Located in backend/known_mcp_servers.py:load_mcp_servers_from_file.", "parent": "e-019", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-074", "type": "facet", "text": "KNOWN_MCP_SERVERS is a module-level list of pre-configured MCPServerConfig objects for popular MCP servers. BUILTIN_TOOLS is a list of built-in ADK tool names (google_search, exit_loop, load_memory). Both are imported by main.py for the tool discovery API. Located in backend/known_mcp_servers.py:KNOWN_MCP_SERVERS/BUILTIN_TOOLS.", "parent": "e-019", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "e-020", "type": "expectation", "text": "MCP connection pool manages persistent connections with timeout and cleanup", "parent": "g-008", "priority": 1, "labels": ["mcp"]}, {"id": "f-075", "type": "facet", "text": "MCPConnectionPool.get_toolset creates or retrieves a cached MCPToolset for a server config. Uses async locking to prevent concurrent creation of the same connection. Supports stdio (StdioConnectionParams) and sse (SseConnectionParams) connection types. Located in backend/main.py:MCPConnectionPool.get_toolset.", "parent": "e-020", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-076", "type": "facet", "text": "MCPConnectionPool._get_server_key generates a unique cache key from server config: 'stdio:{command}:{args}' for stdio or '{type}:{url}' for sse/http. This ensures separate connections for different server configurations. Located in backend/main.py:MCPConnectionPool._get_server_key.", "parent": "e-020", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-077", "type": "facet", "text": "generate_mcp_toolset_code detects browser MCP servers via _is_browser_mcp_server (checks server name and args for browser-related keywords) and _is_chrome_devtools_mcp (checks for chrome-devtools-mcp in args). Injects Docker Chrome args (--no-sandbox, --disable-dev-shm-usage, --headless, etc.) for container compatibility. Located in backend/code_generator.py:_is_browser_mcp_server/_is_chrome_devtools_mcp.", "parent": "e-020", "test": "tests/test_project_parsing.py::TestProjectValidation::test_project_generates_valid_code", "status": "untested"}, {"id": "f-078", "type": "facet", "text": "POST /api/mcp/tools endpoint accepts a server config dict, uses MCPConnectionPool to get or create a toolset, calls get_tools() to discover available tool declarations, and returns them as JSON. Handles connection timeouts via the server config timeout field. Located in backend/main.py (POST /api/mcp/tools).", "parent": "e-020", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-079", "type": "facet", "text": "POST /api/mcp/call invokes a specific MCP tool by name with provided arguments through the MCPConnectionPool. It finds the tool in the cached toolset, calls it with the given args, and returns the result. Located in backend/main.py (POST /api/mcp/call).", "parent": "e-020", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-080", "type": "facet", "text": "MCPToolConfig wraps an MCPServerConfig and is part of the ToolConfig union type. When an agent has an MCP tool, code generation produces McpToolset() with the appropriate connection params and the agent references the toolset variable. Located in backend/models.py:MCPToolConfig / backend/code_generator.py:generate_tool_code.", "parent": "e-019", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "g-009", "type": "goal", "text": "Knowledge and SkillSet System", "parent": null, "priority": 9, "labels": ["knowledge"]}, {"id": "e-021", "type": "expectation", "text": "KnowledgeServiceManager and SkillSetStore provide vector-based semantic search for agent knowledge", "parent": "g-009", "priority": 1, "labels": ["knowledge"]}, {"id": "f-081", "type": "facet", "text": "SkillSetStore.add takes a text string, generates an embedding via _embed (using google.genai EmbedContentConfig), creates a KnowledgeEntry with a hash-based ID, and appends it to the in-memory entries list. Persists to disk as JSON. Located in backend/knowledge_service.py:SkillSetStore.add.", "parent": "e-021", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-082", "type": "facet", "text": "SkillSetStore.search embeds the query text, computes cosine_similarity against all stored entries, filters by min_score, sorts by descending score, and returns the top_k SearchResult objects. Located in backend/knowledge_service.py:SkillSetStore.search.", "parent": "e-021", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-083", "type": "facet", "text": "cosine_similarity computes the dot product of two numpy vectors divided by the product of their norms. Returns 0.0 if either vector has zero norm. Used by SkillSetStore.search for ranking results. Located in backend/knowledge_service.py:cosine_similarity.", "parent": "e-021", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-084", "type": "facet", "text": "chunk_text splits long text into overlapping chunks of a configurable size (default 500 chars) with overlap (default 100 chars), suitable for embedding. Used when adding long documents. fetch_url_content retrieves and extracts text from URLs using aiohttp. Located in backend/knowledge_service.py:chunk_text/fetch_url_content.", "parent": "e-021", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "e-022", "type": "expectation", "text": "SkillSet toolset integrates with ADK agents for knowledge-augmented generation", "parent": "g-009", "priority": 1, "labels": ["knowledge", "toolset"]}, {"id": "f-085", "type": "facet", "text": "SearchSkillSetTool extends BaseTool with a run_async method that takes a 'query' arg, calls SkillSetStore.search, and returns formatted results as a string. The _get_declaration method returns a FunctionDeclaration for the search tool. Located in backend/skillset.py:SearchSkillSetTool.", "parent": "e-022", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-086", "type": "facet", "text": "SkillSet extends BaseToolset with get_tools (returns SearchSkillSetTool) and process_llm_request for knowledge preloading. When preload_enabled is True, it searches the knowledge store using the user message, injects relevant context into the LLM request system instruction. Located in backend/skillset.py:SkillSet.", "parent": "e-022", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-087", "type": "facet", "text": "KnowledgeServiceManager manages multiple named SkillSetStore instances per project, creating and caching stores on demand. Stores are persisted to ~/.adk-playground/skillsets/{project_id}/{skillset_id}/ as JSON files. Located in backend/knowledge_service.py:KnowledgeServiceManager.", "parent": "e-021", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-088", "type": "facet", "text": "SkillSetStore._embed and _embed_batch use google.genai Client with EmbedContentConfig to generate embeddings. _embed handles single texts, _embed_batch processes multiple texts efficiently. Both fall back gracefully if google-genai is not installed (EMBEDDINGS_AVAILABLE flag). Located in backend/knowledge_service.py:SkillSetStore._embed/_embed_batch.", "parent": "e-021", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "g-010", "type": "goal", "text": "Sandbox and Docker", "parent": null, "priority": 10, "labels": ["sandbox"]}, {"id": "e-023", "type": "expectation", "text": "SandboxManager controls Docker container lifecycle for isolated agent execution", "parent": "g-010", "priority": 1, "labels": ["sandbox", "docker"]}, {"id": "f-089", "type": "facet", "text": "SandboxManager.start_sandbox creates a gateway container (mitmproxy), an agent runner container, and optional MCP server containers based on the SandboxConfig. It builds or pulls required Docker images, sets up networking, and configures volume mounts for storage services. Located in backend/sandbox/docker_manager.py:SandboxManager.start_sandbox.", "parent": "e-023", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-090", "type": "facet", "text": "SandboxManager.stop_sandbox stops and removes all containers associated with a sandbox (gateway, runner, MCP). Cleans up Docker networks and temporary files. Located in backend/sandbox/docker_manager.py:SandboxManager.stop_sandbox.", "parent": "e-023", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-091", "type": "facet", "text": "SandboxManager.get_sandbox_status returns a SandboxStatus with container states (running/stopped/error) for the gateway, runner, and MCP containers. Queries Docker API for each container. Located in backend/sandbox/docker_manager.py:SandboxManager.get_sandbox_status.", "parent": "e-023", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-092", "type": "facet", "text": "SandboxManager.send_message_to_agent sends a user message to the running agent container via HTTP, receives streamed RunEvents, and forwards them to the caller. Located in backend/sandbox/docker_manager.py:SandboxManager.send_message_to_agent.", "parent": "e-023", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "e-024", "type": "expectation", "text": "Sandbox configuration model and persistence handles network allowlists and container settings", "parent": "g-010", "priority": 2, "labels": ["sandbox"]}, {"id": "f-093", "type": "facet", "text": "SandboxConfig defines the full sandbox configuration including network_allowlist (NetworkAllowlist with AllowlistPattern entries), volume_mounts, environment variables, resource limits, and MCP server configs. Located in backend/sandbox/models.py:SandboxConfig.", "parent": "e-024", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-094", "type": "facet", "text": "allowlist_persistence module provides load/save functions for sandbox configuration as YAML files. Handles migration from older formats and validates AllowlistPattern entries. Located in backend/sandbox/allowlist_persistence.py.", "parent": "e-024", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "f-095", "type": "facet", "text": "extract_storage_paths_from_project inspects session_service_uri, memory_service_uri, and artifact_service_uri for file:// and sqlite:// schemes, creates VolumeMount objects to bind-mount those paths into the container. Located in backend/sandbox/docker_manager.py:extract_storage_paths_from_project.", "parent": "e-024", "test": "tests/test_sample_projects.py::TestProjectValidation::test_memory_service_uris", "status": "untested"}, {"id": "f-096", "type": "facet", "text": "MCPContainerManager handles lifecycle of MCP server containers within the sandbox: creating containers with appropriate connection params, health checking, restarting on failure. Webhook handler (webhook_handler.py) receives MCP events via HTTP. Located in backend/sandbox/mcp_manager.py:MCPContainerManager / backend/sandbox/webhook_handler.py.", "parent": "e-024", "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid", "status": "untested"}, {"id": "g-011", "type": "goal", "text": "Error Handling and Resilience", "parent": null, "priority": 11, "labels": ["reliability"]}, {"id": "e-025", "type": "expectation", "text": "ADK errors are parsed into actionable messages with helpful hints", "parent": "g-011", "priority": 1, "labels": ["errors"]}, {"id": "f-097", "type": "facet", "text": "parse_adk_error uses regex matching to categorize common ADK errors: missing state variables ('Context variable not found'), missing artifacts, unknown tools, missing agents, rate limits, auth errors, and timeouts. Returns a dict with message, hint, and error_type. Located in backend/runtime.py:parse_adk_error.", "parent": "e-025", "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_emits_events", "status": "untested"}, {"id": "f-098", "type": "facet", "text": "extract_exception_details handles Python 3.11+ ExceptionGroup (from asyncio.TaskGroup) by iterating sub-exceptions, parsing each with parse_adk_error, and combining messages and hints. Captures full stack traces for each sub-error. Located in backend/runtime.py:extract_exception_details.", "parent": "e-025", "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_emits_events", "status": "untested"}, {"id": "e-026", "type": "expectation", "text": "Callback and tool errors are captured gracefully without crashing the runtime", "parent": "g-011", "priority": 1, "labels": ["errors", "callbacks"]}, {"id": "f-099", "type": "facet", "text": "Callback error events include error message, error_type, and stack_trace in the RunEvent data dict. The _wrap_callback function generated in code_generator.py catches exceptions during callback execution and records timing information via state keys. Located in backend/code_generator.py (callback wrapper) / backend/runtime.py (error handling).", "parent": "e-026", "test": "tests/test_callbacks.py::TestCallbackErrors::test_callback_error_captured", "status": "untested"}, {"id": "f-100", "type": "facet", "text": "Callback module reloading: RuntimeManager removes callback modules from sys.modules before each run to ensure fresh imports. This allows live code updates without restarting the server. TestCallbackModuleReloading verifies that updated callback code is reflected after reimport. Located in backend/runtime.py (module cleanup) / tests/test_callbacks.py:TestCallbackModuleReloading.", "parent": "e-026", "test": "tests/test_callbacks.py::TestCallbackModuleReloading::test_module_removed_from_sys_modules", "status": "untested"}, {"id": "f-101", "type": "facet", "text": "Projects with missing or invalid callbacks still generate code successfully. The code_generator falls back to using the full module_path as a string reference when callback definitions cannot be resolved, allowing the code to be generated even if execution would later fail. Located in backend/code_generator.py:generate_agent_code (callback fallback logic).", "parent": "e-026", "test": "tests/test_callbacks.py::TestCallbackErrors::test_callback_module_not_found_generates_code", "status": "untested"}]}, "derived": {"file_map": {"backend/project_manager.py": ["f-001", "f-002", "f-003", "f-004", "f-005", "f-006", "f-007", "f-008", "f-009", "f-010", "f-011", "f-012"], "backend/models.py": ["f-013", "f-014", "f-015", "f-016", "f-017", "f-018", "f-019", "f-020", "f-021", "f-022", "f-064", "f-065"], "backend/code_generator.py": ["f-023", "f-024", "f-026", "f-027", "f-028", "f-029", "f-030", "f-077"], "backend/runtime.py": ["f-033", "f-034", "f-035", "f-036", "f-037", "f-038", "f-039", "f-040", "f-041", "f-042", "f-043", "f-044", "f-097", "f-098"], "backend/main.py": ["f-052", "f-075", "f-076"], "backend/evaluation_service.py": ["f-057", "f-058", "f-059", "f-060", "f-061", "f-066"], "backend/adk_evaluation_service.py": ["f-062"], "backend/model_service.py": ["f-067", "f-068", "f-069", "f-070", "f-071", "f-072"], "backend/known_mcp_servers.py": ["f-073", "f-074"], "backend/knowledge_service.py": ["f-081", "f-082", "f-083", "f-084", "f-087", "f-088"], "backend/skillset.py": ["f-085", "f-086"], "backend/sandbox/docker_manager.py": ["f-089", "f-090", "f-091", "f-092", "f-095"], "backend/sandbox/models.py": ["f-093"], "backend/sandbox/allowlist_persistence.py": ["f-094"]}, "test_map": {"tests/test_sample_projects.py": ["f-001", "f-002", "f-004", "f-005", "f-008", "f-009", "f-010", "f-011", "f-018", "f-021", "f-045", "f-046", "f-049", "f-052", "f-053", "f-054", "f-055", "f-056", "f-057", "f-058", "f-059", "f-060", "f-061", "f-062", "f-063", "f-064", "f-065", "f-066", "f-067", "f-068", "f-069", "f-070", "f-071", "f-072", "f-073", "f-074", "f-075", "f-076", "f-078", "f-079", "f-080", "f-081", "f-082", "f-083", "f-084", "f-085", "f-086", "f-087", "f-088", "f-089", "f-090", "f-091", "f-092", "f-093", "f-094", "f-095", "f-096"], "tests/test_callbacks.py": ["f-003", "f-012", "f-032", "f-099", "f-100", "f-101"], "tests/test_project_parsing.py": ["f-006", "f-007", "f-013", "f-014", "f-015", "f-017", "f-022", "f-023", "f-024", "f-025", "f-026", "f-027", "f-028", "f-029", "f-030", "f-036", "f-037", "f-047", "f-048", "f-077"], "tests/test_integration.py": ["f-016", "f-043", "f-050", "f-051"], "tests/test_runtime.py": ["f-019", "f-020", "f-031", "f-033", "f-034", "f-035", "f-038", "f-039", "f-040", "f-041", "f-042", "f-044", "f-097", "f-098"]}, "located_in": {"f-001": "backend/project_manager.py:ProjectManager.create_project", "f-002": "backend/project_manager.py:ProjectManager.get_project", "f-003": "backend/project_manager.py:ProjectManager.save_project", "f-004": "backend/project_manager.py:ProjectManager.delete_project", "f-005": "backend/project_manager.py:ProjectManager.list_projects", "f-006": "backend/project_manager.py:ProjectManager.get_project_yaml", "f-007": "backend/project_manager.py:ProjectManager.update_project_from_yaml", "f-008": "backend/project_manager.py:ProjectManager._backup_project", "f-009": "backend/project_manager.py:ProjectManager.restore_backup", "f-010": "backend/project_manager.py:ProjectManager._backup_loop", "f-011": "backend/project_manager.py:ProjectManager._save_custom_tools", "f-012": "backend/project_manager.py:ProjectManager._save_custom_callbacks", "f-013": "backend/models.py:LlmAgentConfig", "f-014": "backend/models.py:SequentialAgentConfig", "f-015": "backend/models.py:LoopAgentConfig", "f-016": "backend/models.py:ParallelAgentConfig", "f-017": "backend/models.py:ToolConfig", "f-018": "backend/models.py:MCPServerConfig", "f-019": "backend/models.py:RunEvent", "f-020": "backend/models.py:RunSession", "f-021": "backend/models.py:EvalSet/EvalCase/EvalInvocation", "f-022": "backend/models.py:ModelConfig", "f-023": "backend/code_generator.py:generate_python_code", "f-024": "backend/code_generator.py:generate_agent_code", "f-026": "backend/code_generator.py:generate_model_code", "f-027": "backend/code_generator.py:generate_tool_code", "f-028": "backend/code_generator.py:generate_mcp_toolset_code", "f-029": "backend/code_generator.py:generate_skillset_code", "f-030": "backend/code_generator.py:sanitize_identifier/escape_triple_quoted/escape_double_quoted", "f-033": "backend/runtime.py:RuntimeManager.__init__", "f-034": "backend/runtime.py:RuntimeManager.get_session", "f-035": "backend/runtime.py:RuntimeManager.stop_run", "f-036": "backend/runtime.py:RuntimeManager._execute_generated_code", "f-037": "backend/runtime.py:RuntimeManager._prepare_temp_dir", "f-038": "backend/runtime.py:TrackingPlugin.before_agent_callback", "f-039": "backend/runtime.py:TrackingPlugin.after_agent_callback", "f-040": "backend/runtime.py:TrackingPlugin.before_model_callback", "f-041": "backend/runtime.py:TrackingPlugin.before_tool_callback/after_tool_callback", "f-042": "backend/runtime.py:TrackingPlugin._serialize_contents", "f-043": "backend/runtime.py:RuntimeManager.run_agent", "f-044": "backend/runtime.py:create_session_service_from_uri", "f-052": "backend/main.py:MCPConnectionPool", "f-057": "backend/evaluation_service.py:EvaluationService.run_eval_set", "f-058": "backend/evaluation_service.py:EvaluationService.run_eval_case", "f-059": "backend/evaluation_service.py:RougeScorer", "f-060": "backend/evaluation_service.py:TrajectoryEvaluator", "f-061": "backend/evaluation_service.py:_run_llm_judge", "f-062": "backend/adk_evaluation_service.py:AdkEvaluationService", "f-064": "backend/models.py:EvalConfig", "f-065": "backend/models.py:EvalSetResult/EvalCaseResult", "f-066": "backend/evaluation_service.py:ResponseEvaluator", "f-067": "backend/model_service.py:list_gemini_models", "f-068": "backend/model_service.py:list_*_models", "f-069": "backend/model_service.py:list_ollama_models", "f-070": "backend/model_service.py:list_all_models", "f-071": "backend/model_service.py:ModelInfo", "f-072": "backend/model_service.py:ProviderModels", "f-073": "backend/known_mcp_servers.py:load_mcp_servers_from_file", "f-074": "backend/known_mcp_servers.py:KNOWN_MCP_SERVERS/BUILTIN_TOOLS", "f-075": "backend/main.py:MCPConnectionPool.get_toolset", "f-076": "backend/main.py:MCPConnectionPool._get_server_key", "f-077": "backend/code_generator.py:_is_browser_mcp_server/_is_chrome_devtools_mcp", "f-081": "backend/knowledge_service.py:SkillSetStore.add", "f-082": "backend/knowledge_service.py:SkillSetStore.search", "f-083": "backend/knowledge_service.py:cosine_similarity", "f-084": "backend/knowledge_service.py:chunk_text/fetch_url_content", "f-085": "backend/skillset.py:SearchSkillSetTool", "f-086": "backend/skillset.py:SkillSet", "f-087": "backend/knowledge_service.py:KnowledgeServiceManager", "f-088": "backend/knowledge_service.py:SkillSetStore._embed/_embed_batch", "f-089": "backend/sandbox/docker_manager.py:SandboxManager.start_sandbox", "f-090": "backend/sandbox/docker_manager.py:SandboxManager.stop_sandbox", "f-091": "backend/sandbox/docker_manager.py:SandboxManager.get_sandbox_status", "f-092": "backend/sandbox/docker_manager.py:SandboxManager.send_message_to_agent", "f-093": "backend/sandbox/models.py:SandboxConfig", "f-094": "backend/sandbox/allowlist_persistence.py", "f-095": "backend/sandbox/docker_manager.py:extract_storage_paths_from_project", "f-097": "backend/runtime.py:parse_adk_error", "f-098": "backend/runtime.py:extract_exception_details"}, "goal_files": {"g-001": {"source_files": ["backend/project_manager.py"], "test_files": ["tests/test_callbacks.py", "tests/test_project_parsing.py", "tests/test_sample_projects.py"]}, "g-002": {"source_files": ["backend/models.py"], "test_files": ["tests/test_integration.py", "tests/test_project_parsing.py", "tests/test_runtime.py", "tests/test_sample_projects.py"]}, "g-003": {"source_files": ["backend/code_generator.py"], "test_files": ["tests/test_callbacks.py", "tests/test_project_parsing.py", "tests/test_runtime.py"]}, "g-004": {"source_files": ["backend/runtime.py"], "test_files": ["tests/test_integration.py", "tests/test_project_parsing.py", "tests/test_runtime.py"]}, "g-005": {"source_files": ["backend/main.py"], "test_files": ["tests/test_integration.py", "tests/test_project_parsing.py", "tests/test_sample_projects.py"]}, "g-006": {"source_files": ["backend/adk_evaluation_service.py", "backend/evaluation_service.py", "backend/models.py"], "test_files": ["tests/test_sample_projects.py"]}, "g-007": {"source_files": ["backend/model_service.py"], "test_files": ["tests/test_sample_projects.py"]}, "g-008": {"source_files": ["backend/code_generator.py", "backend/known_mcp_servers.py", "backend/main.py"], "test_files": ["tests/test_project_parsing.py", "tests/test_sample_projects.py"]}, "g-009": {"source_files": ["backend/knowledge_service.py", "backend/skillset.py"], "test_files": ["tests/test_sample_projects.py"]}, "g-010": {"source_files": ["backend/sandbox/allowlist_persistence.py", "backend/sandbox/docker_manager.py", "backend/sandbox/models.py"], "test_files": ["tests/test_sample_projects.py"]}, "g-011": {"source_files": ["backend/runtime.py"], "test_files": ["tests/test_callbacks.py", "tests/test_runtime.py"]}}}};
+// ===== Data setup =====
+var catalog = DATA.catalog;
+var derived = DATA.derived;
+var nodes = catalog.nodes;
+var nodeMap = {};
+var childrenMap = {};
+var goalNodes = [];
+var expNodes = [];
+var facetNodes = [];
+
+// Build forward map from Located in: {file -> [facet_ids]}
+var forwardMap = {};
+
+(function dataInit() {
+  var i, n;
+  for (i = 0; i < nodes.length; i++) {
+    n = nodes[i];
+    nodeMap[n.id] = n;
+    if (!childrenMap[n.id]) childrenMap[n.id] = [];
+    if (n.parent) {
+      if (!childrenMap[n.parent]) childrenMap[n.parent] = [];
+      childrenMap[n.parent].push(n.id);
+    }
+  }
+  for (i = 0; i < nodes.length; i++) {
+    n = nodes[i];
+    if (n.type === 'goal') goalNodes.push(n);
+    else if (n.type === 'expectation') expNodes.push(n);
+    else if (n.type === 'facet') facetNodes.push(n);
+  }
+  goalNodes.sort(function(a, b) { return (a.priority || 99) - (b.priority || 99); });
+
+  // Build forwardMap
+  for (var fid in derived.located_in) {
+    var ref = derived.located_in[fid];
+    var filePart = ref.split(':')[0];
+    if (!forwardMap[filePart]) forwardMap[filePart] = [];
+    forwardMap[filePart].push(fid);
+  }
+})();
+
+var knownFiles = Object.keys(forwardMap).sort();
+
+// ===== Helpers =====
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function getChildren(parentId) {
+  var ids = childrenMap[parentId] || [];
+  var result = [];
+  for (var i = 0; i < ids.length; i++) {
+    if (nodeMap[ids[i]]) result.push(nodeMap[ids[i]]);
+  }
+  return result;
+}
+
+function getAncestorChain(nodeId) {
+  var chain = [];
+  var current = nodeMap[nodeId];
+  while (current) {
+    chain.push(current);
+    current = current.parent ? nodeMap[current.parent] : null;
+  }
+  chain.reverse();
+  return chain;
+}
+
+function computeStatus(node) {
+  if (node.type === 'facet') return node.status || 'untested';
+  var kids = getChildren(node.id);
+  if (kids.length === 0) return 'untested';
+  var allPassing = true, anyFailing = false;
+  for (var i = 0; i < kids.length; i++) {
+    var s = computeStatus(kids[i]);
+    if (s !== 'passing') allPassing = false;
+    if (s === 'failing') anyFailing = true;
+  }
+  if (allPassing) return 'passing';
+  if (anyFailing) return 'failing';
+  return 'untested';
+}
+
+function statusIcon(s) {
+  if (s === 'passing') return '[+]';
+  if (s === 'failing') return '[-]';
+  return '[ ]';
+}
+
+function statusBadge(s) {
+  return '<span class="status-' + s + '">' + s + '</span>';
+}
+
+function highlightText(text) {
+  if (!state.searchPattern || !text) return esc(text);
+  var escaped = esc(text);
+  try {
+    return escaped.replace(state.searchPattern, function(m) { return '<mark>' + m + '</mark>'; });
+  } catch(e) { return escaped; }
+}
+
+function fileLink(filePath) {
+  if (!filePath) return '';
+  return '<span class="file-link" data-file="' + esc(filePath) + '">' + esc(filePath) + '</span>';
+}
+
+function fileLinkHighlight(filePath) {
+  if (!filePath) return '';
+  return '<span class="file-link" data-file="' + esc(filePath) + '">' + highlightText(filePath) + '</span>';
+}
+
+function nodeMatchesSearch(node) {
+  if (!state.searchPattern) return true;
+  var searchable = node.id + ' ' + (node.text || '') + ' ' + (node.test || '') +
+    ' ' + ((node.labels || []).join(' '));
+  var loc = derived.located_in[node.id];
+  if (loc) searchable += ' ' + loc;
+  return state.searchPattern.test(searchable);
+}
+
+function subtreeMatchesSearch(nodeId) {
+  var node = nodeMap[nodeId];
+  if (!node) return false;
+  if (nodeMatchesSearch(node)) return true;
+  var kids = childrenMap[nodeId] || [];
+  for (var i = 0; i < kids.length; i++) {
+    if (subtreeMatchesSearch(kids[i])) return true;
+  }
+  return false;
+}
+
+function countMatchesUnderGoal(goalId) {
+  if (!state.searchPattern) return -1;
+  var count = 0;
+  function walk(nid) {
+    var n = nodeMap[nid];
+    if (n && nodeMatchesSearch(n)) count++;
+    var kids = childrenMap[nid] || [];
+    for (var i = 0; i < kids.length; i++) walk(kids[i]);
+  }
+  walk(goalId);
+  return count;
+}
+
+// ===== State =====
+var state = {
+  activeView: 'catalog',       // 'catalog' or 'preview'
+  activeGoal: null,
+  searchPattern: null,
+  searchText: '',
+  dirty: {hierarchy: true, files: true, stats: true},
+  previewMode: 'hook-read-standard',
+  fileDetailPath: null
+};
+
+function renderAll() {
+  if (state.dirty.hierarchy) {
+    renderHierarchy(document.getElementById('hierarchyContent'));
+  }
+  if (state.dirty.files) {
+    var filesEl = document.getElementById('filesContent');
+    if (state.fileDetailPath) {
+      renderFileDetail(state.fileDetailPath, filesEl);
+    } else {
+      renderFiles(filesEl);
+    }
+  }
+  if (state.dirty.stats) {
+    renderStats(document.getElementById('statsContent'));
+  }
+}
+
+function switchView(view) {
+  state.activeView = view;
+  var catalogEl = document.getElementById('viewCatalog');
+  var previewEl = document.getElementById('viewPreview');
+  var sidebarEl = document.getElementById('sidebar');
+  var searchEl = document.getElementById('searchBoxWrap');
+  var tabs = document.querySelectorAll('.view-tab');
+
+  for (var i = 0; i < tabs.length; i++) {
+    tabs[i].classList.toggle('active', tabs[i].getAttribute('data-view') === view);
+  }
+
+  if (view === 'catalog') {
+    catalogEl.classList.remove('view-hidden');
+    previewEl.classList.add('view-hidden');
+    sidebarEl.style.display = '';
+    searchEl.style.display = '';
+  } else {
+    catalogEl.classList.add('view-hidden');
+    previewEl.classList.remove('view-hidden');
+    sidebarEl.style.display = 'none';
+    searchEl.style.display = 'none';
+  }
+}
+
+// ===== Top counts =====
+function renderTopCounts() {
+  var el = document.getElementById('topCounts');
+  el.innerHTML = '<span class="c-goal">' + goalNodes.length + 'G</span>' +
+    '<span class="c-exp">' + expNodes.length + 'E</span>' +
+    '<span class="c-facet">' + facetNodes.length + 'F</span>';
+}
+
+// ===== Sidebar =====
+function renderSidebar() {
+  var sb = document.getElementById('sidebar');
+  var html = '<div class="goal-card' + (state.activeGoal === null ? ' active' : '') +
+    '" data-goal="all">All Goals</div>';
+  for (var i = 0; i < goalNodes.length; i++) {
+    var g = goalNodes[i];
+    var exps = getChildren(g.id);
+    var fcount = 0;
+    for (var j = 0; j < exps.length; j++) {
+      fcount += getChildren(exps[j].id).length;
+    }
+    var isActive = state.activeGoal === g.id;
+    var matchHtml = '';
+    if (state.searchPattern) {
+      var mc = countMatchesUnderGoal(g.id);
+      if (mc > 0) matchHtml = '<span class="match-count">' + mc + '</span>';
+    }
+    html += '<div class="goal-card' + (isActive ? ' active' : '') + '" data-goal="' + g.id + '">' +
+      matchHtml +
+      '<div class="gid">' + g.id + '</div>' +
+      '<div class="gname">' + esc(g.text) + '</div>' +
+      '<div class="gmeta">' + exps.length + ' exp, ' + fcount + ' facets' +
+      (g.priority ? ' &middot; P' + g.priority : '') + '</div>' +
+      '</div>';
+  }
+  sb.innerHTML = html;
+
+  // Attach click handlers via event delegation
+  sb.onclick = function(e) {
+    var card = e.target.closest('.goal-card');
+    if (!card) return;
+    var gid = card.getAttribute('data-goal');
+    state.activeGoal = gid === 'all' ? null : gid;
+    state.dirty.hierarchy = true;
+    state.dirty.files = true;
+    state.dirty.stats = true;
+    renderSidebar();
+    renderAll();
+  };
+}
+
+// ===== Search =====
+var searchTimeout = null;
+function setupSearch() {
+  var input = document.getElementById('searchInput');
+  input.addEventListener('input', function() {
+    clearTimeout(searchTimeout);
+    var val = this.value.trim();
+    searchTimeout = setTimeout(function() {
+      if (!val) {
+        state.searchPattern = null;
+        state.searchText = '';
+        input.classList.remove('invalid');
+      } else {
+        try {
+          state.searchPattern = new RegExp(val, 'gi');
+          state.searchText = val;
+          input.classList.remove('invalid');
+        } catch(e) {
+          input.classList.add('invalid');
+          return;
+        }
+      }
+      state.dirty.hierarchy = true;
+      state.dirty.files = true;
+      state.dirty.stats = true;
+      renderSidebar();
+      renderAll();
+    }, 200);
+  });
+}
+
+// ===== Panel: Hierarchy =====
+function renderHierarchy(container) {
+  var goals = state.activeGoal ? [nodeMap[state.activeGoal]] : goalNodes;
+  var html = '';
+
+  // Render hierarchy controls
+  var ctrlEl = document.getElementById('hierarchyControls');
+  if (ctrlEl) {
+    ctrlEl.innerHTML = '<div class="hierarchy-controls">' +
+      '<button onclick="expandAllFacets()">Expand All</button>' +
+      '<button onclick="collapseAllFacets()">Collapse All</button></div>';
+  }
+
+  for (var gi = 0; gi < goals.length; gi++) {
+    var g = goals[gi];
+    if (!g) continue;
+    if (state.searchPattern && !subtreeMatchesSearch(g.id)) continue;
+
+    var gStatus = computeStatus(g);
+    var exps = getChildren(g.id);
+    exps.sort(function(a, b) { return (a.priority || 99) - (b.priority || 99); });
+
+    html += '<div class="card node-goal">';
+    html += '<h3><span class="card-id id-goal">' + g.id + '</span>' + highlightText(g.text) + '</h3>';
+    html += '<div class="meta-row">';
+    if (g.priority) html += '<span class="chip chip-priority">P' + g.priority + '</span>';
+    if (g.labels) {
+      for (var li = 0; li < g.labels.length; li++) html += '<span class="chip">' + esc(g.labels[li]) + '</span>';
+    }
+    html += ' ' + statusBadge(gStatus);
+    html += ' <span style="color:#6c757d;font-size:11px">' + exps.length + ' expectations</span>';
+    html += '</div>';
+
+    for (var ei = 0; ei < exps.length; ei++) {
+      var e = exps[ei];
+      if (state.searchPattern && !subtreeMatchesSearch(e.id)) continue;
+
+      var eStatus = computeStatus(e);
+      var facets = getChildren(e.id);
+
+      // Count passing facets
+      var passingCount = 0;
+      var visibleFacetCount = 0;
+      for (var ci = 0; ci < facets.length; ci++) {
+        if (state.searchPattern && !nodeMatchesSearch(facets[ci])) continue;
+        visibleFacetCount++;
+        if ((facets[ci].status || 'untested') === 'passing') passingCount++;
+      }
+
+      // Auto-expand if search matches any facet in this group
+      var autoExpand = false;
+      if (state.searchPattern) {
+        for (var si = 0; si < facets.length; si++) {
+          if (nodeMatchesSearch(facets[si])) { autoExpand = true; break; }
+        }
+      }
+
+      html += '<div class="exp-group">';
+      html += '<div class="card node-exp">';
+      html += '<h4><span class="card-id id-exp">' + e.id + '</span>' + highlightText(e.text) + '</h4>';
+      html += '<div class="meta-row">';
+      if (e.priority) html += '<span class="chip chip-priority">P' + e.priority + '</span>';
+      if (e.labels) {
+        for (var lj = 0; lj < e.labels.length; lj++) html += '<span class="chip">' + esc(e.labels[lj]) + '</span>';
+      }
+      html += ' ' + statusBadge(eStatus);
+      html += ' <span style="color:#6c757d;font-size:11px">' + facets.length + ' facets</span>';
+      html += '</div>';
+
+      // Facet toggle row
+      if (facets.length > 0) {
+        var expanded = autoExpand;
+        html += '<div class="facet-toggle" data-exp-id="' + e.id + '">';
+        html += '<span class="toggle-arrow' + (expanded ? ' expanded' : '') + '">&#9654;</span>';
+        html += '<span class="toggle-summary">' + visibleFacetCount + ' facets</span>';
+        html += '<span class="toggle-status">' + passingCount + ' passing</span>';
+        html += '</div>';
+
+        // Facet group (collapsed by default unless search match)
+        html += '<div class="facet-group' + (expanded ? '' : ' collapsed') + '" data-facet-group="' + e.id + '">';
+        for (var fi = 0; fi < facets.length; fi++) {
+          var f = facets[fi];
+          if (state.searchPattern && !nodeMatchesSearch(f)) continue;
+
+          var loc = derived.located_in[f.id];
+          html += '<div class="card node-facet">';
+          html += '<div class="meta-row"><span class="card-id id-facet">' + f.id + '</span>' + statusBadge(f.status || 'untested') + '</div>';
+          html += '<div style="margin:4px 0;font-size:12px">' + highlightText(f.text) + '</div>';
+          if (loc) {
+            var locFile = loc.split(':')[0];
+            html += '<div class="meta-row"><span class="label">Source:</span><span class="val">' + fileLinkHighlight(locFile) + '</span></div>';
+          }
+          if (f.test) {
+            html += '<div class="meta-row"><span class="label">Test:</span><span class="val">' + highlightText(f.test) + '</span></div>';
+          }
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+
+      html += '</div></div>';
+    }
+    html += '</div>';
+  }
+  if (!html) html = '<div style="color:#6c757d;padding:20px">No matching nodes found.</div>';
+  container.innerHTML = html;
+  state.dirty.hierarchy = false;
+}
+
+// Facet toggle click handler (event delegation)
+function setupFacetToggle() {
+  document.getElementById('hierarchyContent').addEventListener('click', function(e) {
+    var toggle = e.target.closest('.facet-toggle');
+    if (!toggle) return;
+    var expId = toggle.getAttribute('data-exp-id');
+    var group = document.querySelector('[data-facet-group="' + expId + '"]');
+    var arrow = toggle.querySelector('.toggle-arrow');
+    if (group) {
+      group.classList.toggle('collapsed');
+      if (arrow) arrow.classList.toggle('expanded');
+    }
+  });
+}
+
+function expandAllFacets() {
+  var groups = document.querySelectorAll('.facet-group.collapsed');
+  for (var i = 0; i < groups.length; i++) groups[i].classList.remove('collapsed');
+  var arrows = document.querySelectorAll('.toggle-arrow');
+  for (var j = 0; j < arrows.length; j++) arrows[j].classList.add('expanded');
+}
+
+function collapseAllFacets() {
+  var groups = document.querySelectorAll('.facet-group');
+  for (var i = 0; i < groups.length; i++) groups[i].classList.add('collapsed');
+  var arrows = document.querySelectorAll('.toggle-arrow');
+  for (var j = 0; j < arrows.length; j++) arrows[j].classList.remove('expanded');
+}
+
+// ===== Panel: Files =====
+function renderFiles(container) {
+  var html = '';
+
+  // Filter files if a goal is selected
+  var visibleFacets = {};
+  if (state.activeGoal) {
+    var gNode = nodeMap[state.activeGoal];
+    if (gNode) {
+      function collectFacetIds(nid) {
+        var n = nodeMap[nid];
+        if (!n) return;
+        if (n.type === 'facet') visibleFacets[nid] = true;
+        var kids = childrenMap[nid] || [];
+        for (var i = 0; i < kids.length; i++) collectFacetIds(kids[i]);
+      }
+      collectFacetIds(state.activeGoal);
+    }
+  }
+
+  function filterFileMap(fmap) {
+    if (!state.activeGoal) return fmap;
+    var filtered = {};
+    for (var file in fmap) {
+      var fids = fmap[file];
+      var kept = [];
+      for (var i = 0; i < fids.length; i++) {
+        if (visibleFacets[fids[i]]) kept.push(fids[i]);
+      }
+      if (kept.length > 0) filtered[file] = kept;
+    }
+    return filtered;
+  }
+
+  function matchesFileSearch(file, fids) {
+    if (!state.searchPattern) return true;
+    if (state.searchPattern.test(file)) return true;
+    for (var i = 0; i < fids.length; i++) {
+      if (state.searchPattern.test(fids[i])) return true;
+    }
+    return false;
+  }
+
+  // Source files
+  var srcMap = filterFileMap(derived.file_map);
+  html += '<h3 style="margin-bottom:8px">Source Files</h3>';
+  var dirs = {};
+  for (var sf in srcMap) {
+    if (!matchesFileSearch(sf, srcMap[sf])) continue;
+    var parts = sf.split('/');
+    var dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '.';
+    if (!dirs[dir]) dirs[dir] = [];
+    dirs[dir].push({file: sf, fids: srcMap[sf]});
+  }
+  var sortedDirs = Object.keys(dirs).sort();
+  if (sortedDirs.length === 0) {
+    html += '<div style="color:#6c757d;margin-bottom:16px">No source files found.</div>';
+  } else {
+    for (var di = 0; di < sortedDirs.length; di++) {
+      var d = sortedDirs[di];
+      html += '<div class="file-tree">';
+      html += '<div class="file-dir">' + esc(d) + '/</div>';
+      var entries = dirs[d].sort(function(a, b) { return a.file < b.file ? -1 : 1; });
+      for (var ei = 0; ei < entries.length; ei++) {
+        var entry = entries[ei];
+        html += '<div class="file-entry">' + fileLinkHighlight(entry.file);
+        html += ' <span class="fids">' + entry.fids.join(', ') + '</span></div>';
+      }
+      html += '</div>';
+    }
+  }
+
+  // Test files
+  var tstMap = filterFileMap(derived.test_map);
+  html += '<h3 style="margin:16px 0 8px">Test Files</h3>';
+  var tdirs = {};
+  for (var tf in tstMap) {
+    if (!matchesFileSearch(tf, tstMap[tf])) continue;
+    var tparts = tf.split('/');
+    var tdir = tparts.length > 1 ? tparts.slice(0, -1).join('/') : '.';
+    if (!tdirs[tdir]) tdirs[tdir] = [];
+    tdirs[tdir].push({file: tf, fids: tstMap[tf]});
+  }
+  var tsortedDirs = Object.keys(tdirs).sort();
+  if (tsortedDirs.length === 0) {
+    html += '<div style="color:#6c757d;margin-bottom:16px">No test files found.</div>';
+  } else {
+    for (var tdi = 0; tdi < tsortedDirs.length; tdi++) {
+      var td = tsortedDirs[tdi];
+      html += '<div class="file-tree">';
+      html += '<div class="file-dir">' + esc(td) + '/</div>';
+      var tentries = tdirs[td].sort(function(a, b) { return a.file < b.file ? -1 : 1; });
+      for (var tei = 0; tei < tentries.length; tei++) {
+        var tentry = tentries[tei];
+        html += '<div class="file-entry">' + fileLinkHighlight(tentry.file);
+        html += ' <span class="fids">' + tentry.fids.join(', ') + '</span></div>';
+      }
+      html += '</div>';
+    }
+  }
+
+  container.innerHTML = html;
+  state.dirty.files = false;
+}
+
+// ===== File Detail View (reverse-tree) =====
+function renderFileDetail(filePath, container) {
+  var html = '';
+  html += '<div class="file-detail-back" onclick="clearFileDetail()">&#8592; Back to file list</div>';
+  html += '<div class="file-detail-title">' + esc(filePath) + '</div>';
+
+  // Find all facets referencing this file
+  var facetIds = [];
+  for (var fid in derived.located_in) {
+    var loc = derived.located_in[fid];
+    var locFile = loc.split(':')[0];
+    if (locFile === filePath) facetIds.push(fid);
+  }
+
+  html += '<div class="file-detail-count">' + facetIds.length + ' facets reference this file</div>';
+
+  if (facetIds.length === 0) {
+    html += '<div style="color:#6c757d">No facets found for this file.</div>';
+    container.innerHTML = html;
+    state.dirty.files = false;
+    return;
+  }
+
+  // Build reverse tree: group facets by goal -> expectation
+  var goalGroups = {};
+  for (var i = 0; i < facetIds.length; i++) {
+    var facet = nodeMap[facetIds[i]];
+    if (!facet) continue;
+
+    // Walk up to find expectation and goal
+    var expNode = null, goalNode = null;
+    var current = nodeMap[facet.parent];
+    while (current) {
+      if (current.type === 'expectation' && !expNode) expNode = current;
+      else if (current.type === 'goal') { goalNode = current; break; }
+      current = current.parent ? nodeMap[current.parent] : null;
+    }
+    if (!goalNode || !expNode) continue;
+
+    var gid = goalNode.id, eid = expNode.id;
+    if (!goalGroups[gid]) goalGroups[gid] = {node: goalNode, expectations: {}};
+    if (!goalGroups[gid].expectations[eid]) goalGroups[gid].expectations[eid] = {node: expNode, facets: []};
+    goalGroups[gid].expectations[eid].facets.push(facet);
+  }
+
+  // Render reverse tree
+  var gids = Object.keys(goalGroups).sort();
+  for (var gi = 0; gi < gids.length; gi++) {
+    var gdata = goalGroups[gids[gi]];
+    var g = gdata.node;
+    html += '<div class="card node-goal" style="margin-top:8px">';
+    html += '<h3><span class="card-id id-goal">[G]</span> <span class="card-id id-goal">' + g.id + '</span>' + esc(g.text) + '</h3>';
+
+    var eids = Object.keys(gdata.expectations).sort();
+    for (var ej = 0; ej < eids.length; ej++) {
+      var edata = gdata.expectations[eids[ej]];
+      var exp = edata.node;
+      html += '<div class="exp-group">';
+      html += '<div class="card node-exp">';
+      html += '<h4><span class="card-id id-exp">[E]</span> <span class="card-id id-exp">' + exp.id + '</span>' + esc(exp.text) + '</h4>';
+
+      html += '<div class="facet-group">';
+      for (var fk = 0; fk < edata.facets.length; fk++) {
+        var f = edata.facets[fk];
+        html += '<div class="card node-facet">';
+        html += '<div class="meta-row"><span class="card-id id-facet">[F]</span> <span class="card-id id-facet">' + f.id + '</span>' + statusBadge(f.status || 'untested') + '</div>';
+        html += '<div style="margin:4px 0;font-size:12px">' + esc(f.text) + '</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+
+      html += '</div></div>';
+    }
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+  state.dirty.files = false;
+}
+
+function clearFileDetail() {
+  state.fileDetailPath = null;
+  state.dirty.files = true;
+  renderAll();
+}
+
+// ===== Panel: Stats =====
+function renderBarChart(title, items, maxVal, width) {
+  width = width || 400;
+  var barH = 20, gap = 4, labelW = 140, valW = 40;
+  var chartW = width - labelW - valW - 20;
+  var h = items.length * (barH + gap) + 10;
+  var svg = '<svg width="' + width + '" height="' + h + '">';
+  for (var i = 0; i < items.length; i++) {
+    var y = i * (barH + gap) + 2;
+    var bw = maxVal > 0 ? (items[i].value / maxVal) * chartW : 0;
+    var labelHtml = items[i].fileLink
+      ? '' // skip SVG text; we'll overlay HTML
+      : '<text x="0" y="' + (y + 14) + '" font-size="11" fill="#495057">' + esc(items[i].label) + '</text>';
+    svg += labelHtml;
+    svg += '<rect x="' + labelW + '" y="' + y + '" width="' + bw + '" height="' + barH + '" rx="2" fill="' + (items[i].color || '#0d6efd') + '" opacity="0.8"/>';
+    svg += '<text x="' + (labelW + chartW + 4) + '" y="' + (y + 14) + '" font-size="11" fill="#495057">' + items[i].value + '</text>';
+  }
+  svg += '</svg>';
+  return '<div class="bar-chart"><div class="chart-title">' + esc(title) + '</div>' + svg + '</div>';
+}
+
+function renderStats(container) {
+  // Scope to active goal if selected
+  var scopedFacets, scopedExps, scopedGoals;
+  if (state.activeGoal) {
+    scopedGoals = [nodeMap[state.activeGoal]];
+    scopedExps = [];
+    scopedFacets = [];
+    function collectScoped(nid) {
+      var n = nodeMap[nid];
+      if (!n) return;
+      if (n.type === 'expectation') scopedExps.push(n);
+      if (n.type === 'facet') scopedFacets.push(n);
+      var kids = childrenMap[nid] || [];
+      for (var i = 0; i < kids.length; i++) collectScoped(kids[i]);
+    }
+    collectScoped(state.activeGoal);
+  } else {
+    scopedGoals = goalNodes;
+    scopedExps = expNodes;
+    scopedFacets = facetNodes;
+  }
+
+  var html = '<div class="stat-cards">';
+  html += '<div class="stat-card sc-goal"><div class="num">' + scopedGoals.length + '</div><div class="lbl">Goals</div></div>';
+  html += '<div class="stat-card sc-exp"><div class="num">' + scopedExps.length + '</div><div class="lbl">Expectations</div></div>';
+  html += '<div class="stat-card sc-facet"><div class="num">' + scopedFacets.length + '</div><div class="lbl">Facets</div></div>';
+  html += '</div>';
+
+  // Status distribution
+  var passing = 0, failing = 0, untested = 0;
+  for (var i = 0; i < scopedFacets.length; i++) {
+    var s = scopedFacets[i].status || 'untested';
+    if (s === 'passing') passing++;
+    else if (s === 'failing') failing++;
+    else untested++;
+  }
+  var maxStatus = Math.max(passing, failing, untested, 1);
+  html += renderBarChart('Status Distribution', [
+    {label: 'Passing', value: passing, color: '#198754'},
+    {label: 'Failing', value: failing, color: '#dc3545'},
+    {label: 'Untested', value: untested, color: '#6c757d'}
+  ], maxStatus);
+
+  // Label frequency
+  var labelCounts = {};
+  for (var j = 0; j < scopedExps.length; j++) {
+    var labels = scopedExps[j].labels || [];
+    for (var k = 0; k < labels.length; k++) {
+      labelCounts[labels[k]] = (labelCounts[labels[k]] || 0) + 1;
+    }
+  }
+  for (var jg = 0; jg < scopedGoals.length; jg++) {
+    var glabels = scopedGoals[jg].labels || [];
+    for (var kg = 0; kg < glabels.length; kg++) {
+      labelCounts[glabels[kg]] = (labelCounts[glabels[kg]] || 0) + 1;
+    }
+  }
+  var labelItems = [];
+  for (var lb in labelCounts) labelItems.push({label: lb, value: labelCounts[lb], color: '#0d6efd'});
+  labelItems.sort(function(a, b) { return b.value - a.value; });
+  var maxLabel = labelItems.length > 0 ? labelItems[0].value : 1;
+  if (labelItems.length > 0) {
+    html += renderBarChart('Label Frequency', labelItems, maxLabel);
+  }
+
+  // Per-goal completion bars
+  html += '<div class="chart-title" style="margin-top:16px">Goal Completion (% facets passing)</div>';
+  var completionGoals = state.activeGoal ? [nodeMap[state.activeGoal]] : goalNodes;
+  for (var cg = 0; cg < completionGoals.length; cg++) {
+    var goal = completionGoals[cg];
+    var gFacets = [];
+    function collectGoalFacets(nid) {
+      var n = nodeMap[nid];
+      if (!n) return;
+      if (n.type === 'facet') gFacets.push(n);
+      var kids = childrenMap[nid] || [];
+      for (var ci = 0; ci < kids.length; ci++) collectGoalFacets(kids[ci]);
+    }
+    collectGoalFacets(goal.id);
+    var gPassing = 0;
+    for (var gf = 0; gf < gFacets.length; gf++) {
+      if ((gFacets[gf].status || 'untested') === 'passing') gPassing++;
+    }
+    var pct = gFacets.length > 0 ? Math.round(gPassing / gFacets.length * 100) : 0;
+    var barColor = pct === 100 ? '#198754' : pct > 0 ? '#ffc107' : '#e9ecef';
+    html += '<div class="completion-bar-wrap">';
+    html += '<div class="completion-bar-label" title="' + esc(goal.text) + '">' + goal.id + ' ' + esc(goal.text) + '</div>';
+    html += '<div class="completion-bar-outer"><div class="completion-bar-inner" style="width:' + pct + '%;background:' + barColor + '"></div></div>';
+    html += '<div class="completion-bar-pct">' + pct + '%</div>';
+    html += '</div>';
+  }
+
+  // Files with most facets — use file links
+  var fileFacetCounts = [];
+  for (var ff in derived.file_map) {
+    fileFacetCounts.push({label: ff, value: derived.file_map[ff].length, color: '#495057'});
+  }
+  fileFacetCounts.sort(function(a, b) { return b.value - a.value; });
+  if (fileFacetCounts.length > 10) fileFacetCounts = fileFacetCounts.slice(0, 10);
+  var maxFileFacets = fileFacetCounts.length > 0 ? fileFacetCounts[0].value : 1;
+  if (fileFacetCounts.length > 0) {
+    html += '<div class="chart-title" style="margin-top:16px">Top Files by Facet Count</div>';
+    for (var tfi = 0; tfi < fileFacetCounts.length; tfi++) {
+      var item = fileFacetCounts[tfi];
+      var bPct = maxFileFacets > 0 ? Math.round(item.value / maxFileFacets * 100) : 0;
+      html += '<div class="completion-bar-wrap">';
+      html += '<div class="completion-bar-label" title="' + esc(item.label) + '">' + fileLink(item.label) + '</div>';
+      html += '<div class="completion-bar-outer"><div class="completion-bar-inner" style="width:' + bPct + '%;background:#495057"></div></div>';
+      html += '<div class="completion-bar-pct">' + item.value + '</div>';
+      html += '</div>';
+    }
+  }
+
+  container.innerHTML = html;
+  state.dirty.stats = false;
+}
+
+// ===== Panel: Preview =====
+function renderPreview(container) {
+  var html = '<div class="preview-controls">';
+
+  // Mode selector
+  html += '<div class="ctrl-group"><label>Mode</label>';
+  html += '<select id="previewMode">';
+  html += '<option value="hook-read-standard"' + (state.previewMode === 'hook-read-standard' ? ' selected' : '') + '>Hook: Read (standard)</option>';
+  html += '<option value="hook-read-narrative"' + (state.previewMode === 'hook-read-narrative' ? ' selected' : '') + '>Hook: Read (narrative)</option>';
+  html += '<option value="mcp-bdd_motivation"' + (state.previewMode === 'mcp-bdd_motivation' ? ' selected' : '') + '>MCP: bdd_motivation</option>';
+  html += '<option value="mcp-bdd_tree"' + (state.previewMode === 'mcp-bdd_tree' ? ' selected' : '') + '>MCP: bdd_tree</option>';
+  html += '<option value="mcp-bdd_status"' + (state.previewMode === 'mcp-bdd_status' ? ' selected' : '') + '>MCP: bdd_status</option>';
+  html += '<option value="mcp-bdd_locate"' + (state.previewMode === 'mcp-bdd_locate' ? ' selected' : '') + '>MCP: bdd_locate</option>';
+  html += '<option value="mcp-bdd_next"' + (state.previewMode === 'mcp-bdd_next' ? ' selected' : '') + '>MCP: bdd_next</option>';
+  html += '</select></div>';
+
+  // File path input with autocomplete
+  html += '<div class="ctrl-group"><label>File path</label>';
+  html += '<div class="autocomplete-wrap"><input type="text" id="previewFile" placeholder="e.g. backend/project_manager.py" style="width:260px" />';
+  html += '<div class="autocomplete-list" id="previewFileAC"></div></div></div>';
+
+  // Node ID input
+  html += '<div class="ctrl-group"><label>Node ID</label>';
+  html += '<input type="text" id="previewNodeId" placeholder="e.g. g-001, e-005" style="width:100px" /></div>';
+
+  // Start/end line
+  html += '<div class="ctrl-group"><label>Start line</label>';
+  html += '<input type="number" id="previewStartLine" placeholder="0" style="width:60px" /></div>';
+  html += '<div class="ctrl-group"><label>End line</label>';
+  html += '<input type="number" id="previewEndLine" placeholder="0" style="width:60px" /></div>';
+
+  // Status filter
+  html += '<div class="ctrl-group"><label>Status filter</label>';
+  html += '<input type="text" id="previewStatusFilter" placeholder="e.g. unsatisfied" style="width:100px" /></div>';
+
+  // Max depth
+  html += '<div class="ctrl-group"><label>Max depth</label>';
+  html += '<input type="number" id="previewMaxDepth" placeholder="0" style="width:50px" /></div>';
+
+  html += '<button class="btn-generate" id="btnGenerate">Generate</button>';
+  html += '</div>';
+
+  html += '<div class="preview-output" id="previewOutput">Select a mode and click Generate to see the LLM preview.</div>';
+
+  container.innerHTML = html;
+
+  // Mode change handler — show/hide relevant inputs
+  var modeSelect = document.getElementById('previewMode');
+  function updateInputVisibility() {
+    var mode = modeSelect.value;
+    state.previewMode = mode;
+    var fileInput = document.getElementById('previewFile').parentNode.parentNode;
+    var nodeInput = document.getElementById('previewNodeId').parentNode;
+    var startLine = document.getElementById('previewStartLine').parentNode;
+    var endLine = document.getElementById('previewEndLine').parentNode;
+    var statusFilter = document.getElementById('previewStatusFilter').parentNode;
+    var maxDepth = document.getElementById('previewMaxDepth').parentNode;
+
+    fileInput.style.display = 'none';
+    nodeInput.style.display = 'none';
+    startLine.style.display = 'none';
+    endLine.style.display = 'none';
+    statusFilter.style.display = 'none';
+    maxDepth.style.display = 'none';
+
+    if (mode === 'hook-read-standard' || mode === 'hook-read-narrative') {
+      fileInput.style.display = '';
+    } else if (mode === 'mcp-bdd_motivation') {
+      fileInput.style.display = '';
+      startLine.style.display = '';
+      endLine.style.display = '';
+    } else if (mode === 'mcp-bdd_tree') {
+      nodeInput.style.display = '';
+      statusFilter.style.display = '';
+      maxDepth.style.display = '';
+    } else if (mode === 'mcp-bdd_locate') {
+      nodeInput.style.display = '';
+    }
+    // bdd_status and bdd_next have no inputs
+  }
+  modeSelect.addEventListener('change', updateInputVisibility);
+  updateInputVisibility();
+
+  // Autocomplete for file path
+  var fileInput = document.getElementById('previewFile');
+  var acList = document.getElementById('previewFileAC');
+  var acActiveIdx = -1;
+
+  fileInput.addEventListener('input', function() {
+    var val = this.value.toLowerCase();
+    acList.innerHTML = '';
+    acActiveIdx = -1;
+    if (!val) { acList.classList.remove('show'); return; }
+    var matches = [];
+    for (var i = 0; i < knownFiles.length && matches.length < 15; i++) {
+      if (knownFiles[i].toLowerCase().indexOf(val) >= 0) matches.push(knownFiles[i]);
+    }
+    if (matches.length === 0) { acList.classList.remove('show'); return; }
+    for (var j = 0; j < matches.length; j++) {
+      var div = document.createElement('div');
+      div.className = 'autocomplete-item';
+      div.textContent = matches[j];
+      div.addEventListener('click', function() {
+        fileInput.value = this.textContent;
+        acList.classList.remove('show');
+      });
+      acList.appendChild(div);
+    }
+    acList.classList.add('show');
+  });
+
+  fileInput.addEventListener('keydown', function(e) {
+    var items = acList.querySelectorAll('.autocomplete-item');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      acActiveIdx = Math.min(acActiveIdx + 1, items.length - 1);
+      for (var i = 0; i < items.length; i++) items[i].classList.toggle('active', i === acActiveIdx);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      acActiveIdx = Math.max(acActiveIdx - 1, 0);
+      for (var i = 0; i < items.length; i++) items[i].classList.toggle('active', i === acActiveIdx);
+    } else if (e.key === 'Enter' && acActiveIdx >= 0 && items[acActiveIdx]) {
+      e.preventDefault();
+      fileInput.value = items[acActiveIdx].textContent;
+      acList.classList.remove('show');
+    }
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!fileInput.contains(e.target) && !acList.contains(e.target)) {
+      acList.classList.remove('show');
+    }
+  });
+
+  // Generate button
+  document.getElementById('btnGenerate').addEventListener('click', function() {
+    var output = document.getElementById('previewOutput');
+    var mode = document.getElementById('previewMode').value;
+    var result = '';
+    try {
+      if (mode === 'hook-read-standard') {
+        result = simulateHookStandard(document.getElementById('previewFile').value);
+      } else if (mode === 'hook-read-narrative') {
+        result = simulateHookNarrative(document.getElementById('previewFile').value);
+      } else if (mode === 'mcp-bdd_motivation') {
+        result = simulateBddMotivation(
+          document.getElementById('previewFile').value,
+          parseInt(document.getElementById('previewStartLine').value) || 0,
+          parseInt(document.getElementById('previewEndLine').value) || 0
+        );
+      } else if (mode === 'mcp-bdd_tree') {
+        result = simulateBddTree(
+          document.getElementById('previewNodeId').value,
+          document.getElementById('previewStatusFilter').value,
+          parseInt(document.getElementById('previewMaxDepth').value) || 0
+        );
+      } else if (mode === 'mcp-bdd_status') {
+        result = simulateBddStatus();
+      } else if (mode === 'mcp-bdd_locate') {
+        result = simulateBddLocate(document.getElementById('previewNodeId').value);
+      } else if (mode === 'mcp-bdd_next') {
+        result = simulateBddNext();
+      }
+    } catch(e) {
+      result = 'Error: ' + e.message;
+    }
+    output.innerHTML = highlightBddOutput(result);
+  });
+}
+
+// ===== LLM Simulation functions =====
+
+function findFacetsForFile(filePath) {
+  if (!filePath) return [];
+  var facetIds = [];
+  for (var f in forwardMap) {
+    if (f.indexOf(filePath) >= 0 || filePath.indexOf(f) >= 0) {
+      var fids = forwardMap[f];
+      for (var i = 0; i < fids.length; i++) facetIds.push(fids[i]);
+    }
+  }
+  return facetIds;
+}
+
+function buildDeduplicatedTree(facetIds) {
+  var treeNodes = {};
+  var treeRoots = {};
+  for (var fi = 0; fi < facetIds.length; fi++) {
+    var fid = facetIds[fi];
+    var chain = getAncestorChain(fid);
+    for (var i = 0; i < chain.length; i++) {
+      var n = chain[i];
+      if (!treeNodes[n.id]) {
+        treeNodes[n.id] = {node: n, children: {}};
+      }
+      if (i > 0) {
+        treeNodes[chain[i - 1].id].children[n.id] = true;
+      } else {
+        treeRoots[n.id] = true;
+      }
+    }
+  }
+  return {treeNodes: treeNodes, treeRoots: treeRoots};
+}
+
+function simulateHookStandard(filePath) {
+  var facetIds = findFacetsForFile(filePath);
+  if (facetIds.length === 0) return 'No catalog entries related to ' + filePath;
+
+  var tree = buildDeduplicatedTree(facetIds);
+  var lines = ['--- BDD: This code exists because ---'];
+
+  function render(nid, indent) {
+    var tn = tree.treeNodes[nid];
+    if (!tn) return;
+    var n = tn.node;
+    var prefix = '';
+    for (var p = 0; p < indent; p++) prefix += '  ';
+    var t = n.type.charAt(0).toUpperCase();
+    lines.push('  ' + prefix + n.id + ' [' + t + '] ' + n.text);
+    var childIds = Object.keys(tn.children).sort();
+    for (var i = 0; i < childIds.length; i++) {
+      render(childIds[i], indent + 1);
+    }
+  }
+
+  var rootIds = Object.keys(tree.treeRoots).sort();
+  for (var ri = 0; ri < rootIds.length; ri++) {
+    render(rootIds[ri], 0);
+  }
+  lines.push('---');
+  return lines.join('\n');
+}
+
+function simulateHookNarrative(filePath) {
+  var facetIds = findFacetsForFile(filePath);
+  if (facetIds.length === 0) return 'No catalog entries related to ' + filePath;
+
+  // Build goal -> expectation -> facets structure
+  var structure = {};
+  for (var fi = 0; fi < facetIds.length; fi++) {
+    var fid = facetIds[fi];
+    var facet = nodeMap[fid];
+    if (!facet) continue;
+
+    var expNode = null, goalNode = null;
+    var current = nodeMap[facet.parent];
+    while (current) {
+      if (current.type === 'expectation' && !expNode) expNode = current;
+      else if (current.type === 'goal') { goalNode = current; break; }
+      current = current.parent ? nodeMap[current.parent] : null;
+    }
+    if (!goalNode || !expNode) continue;
+
+    var gid = goalNode.id, eid = expNode.id;
+    if (!structure[gid]) structure[gid] = {node: goalNode, expectations: {}};
+    if (!structure[gid].expectations[eid]) structure[gid].expectations[eid] = {node: expNode, facets: []};
+    structure[gid].expectations[eid].facets.push(facet);
+  }
+
+  if (Object.keys(structure).length === 0) return 'No catalog entries related to ' + filePath;
+
+  // Render prose
+  var basename = filePath.split('/').pop();
+  var moduleName = basename.replace(/\.[^.]+$/, '');
+  var linesOut = ['--- Why this code exists ---'];
+
+  var gids = Object.keys(structure).sort();
+  for (var gi = 0; gi < gids.length; gi++) {
+    var gdata = structure[gids[gi]];
+    var goalText = gdata.node.text;
+    var expCount = Object.keys(gdata.expectations).length;
+
+    linesOut.push('This module is part of the ' + moduleName + ' layer. It was designed to ' + goalText.toLowerCase() + ' (' + gids[gi] + ').');
+    linesOut.push('');
+
+    if (expCount === 1) {
+      var eid = Object.keys(gdata.expectations)[0];
+      var edata = gdata.expectations[eid];
+      var expText = edata.node.text;
+      linesOut.push('The code you\'re reading implements: **' + expText + '** (' + eid + ').');
+      for (var fj = 0; fj < edata.facets.length; fj++) {
+        linesOut.push('- ' + edata.facets[fj].text);
+      }
+    } else {
+      linesOut.push('The code you\'re reading implements multiple user expectations:');
+      var eids = Object.keys(gdata.expectations).sort();
+      for (var ek = 0; ek < eids.length; ek++) {
+        var ed = gdata.expectations[eids[ek]];
+        var facetSummaries = [];
+        for (var fl = 0; fl < ed.facets.length; fl++) {
+          var ft = ed.facets[fl].text;
+          var funcPart;
+          if (ft.indexOf(':') >= 0) {
+            var before = ft.substring(0, ft.indexOf(':'));
+            funcPart = before.indexOf('.') >= 0 ? before : (ft.indexOf(' ') >= 0 ? ft.substring(0, ft.indexOf(' ')) : ft);
+          } else {
+            funcPart = ft.substring(0, 40);
+          }
+          facetSummaries.push(funcPart);
+        }
+        linesOut.push('- **' + ed.node.text + '** (' + eids[ek] + '): ' + facetSummaries.join(', '));
+      }
+    }
+  }
+  linesOut.push('---');
+  return linesOut.join('\n');
+}
+
+function simulateBddMotivation(filePath, startLine, endLine) {
+  var facetIds = findFacetsForFile(filePath);
+  if (facetIds.length === 0) {
+    return 'No catalog entries related to ' + filePath + (startLine ? ' lines ' + startLine + '-' + endLine : '');
+  }
+
+  var tree = buildDeduplicatedTree(facetIds);
+  var lines = ['--- This code exists because ---'];
+
+  function render(nid, indent) {
+    var tn = tree.treeNodes[nid];
+    if (!tn) return;
+    var n = tn.node;
+    var prefix = '';
+    for (var p = 0; p < indent; p++) prefix += '  ';
+    var t = n.type.charAt(0).toUpperCase();
+    lines.push('  ' + prefix + n.id + ' [' + t + '] ' + n.text);
+    var childIds = Object.keys(tn.children).sort();
+    for (var i = 0; i < childIds.length; i++) {
+      render(childIds[i], indent + 1);
+    }
+  }
+
+  var rootIds = Object.keys(tree.treeRoots).sort();
+  for (var ri = 0; ri < rootIds.length; ri++) {
+    render(rootIds[ri], 0);
+  }
+  lines.push('---');
+  return lines.join('\n');
+}
+
+function simulateBddTree(nodeId, statusFilter, maxDepth) {
+  var roots;
+  if (nodeId) {
+    var target = nodeMap[nodeId];
+    if (!target) return "Node '" + nodeId + "' not found";
+    roots = [target];
+  } else {
+    roots = [];
+    for (var i = 0; i < nodes.length; i++) {
+      if (!nodes[i].parent) roots.push(nodes[i]);
+    }
+  }
+  roots.sort(function(a, b) { return (a.priority || 99) - (b.priority || 99); });
+
+  var lines = [];
+
+  function shouldShow(node) {
+    if (!statusFilter) return true;
+    var s = computeStatus(node);
+    if (statusFilter === 'unsatisfied') return s !== 'passing';
+    if (statusFilter === 'failing') return s === 'failing';
+    if (statusFilter === 'untested') return s === 'untested';
+    if (statusFilter === 'passing') return s === 'passing';
+    return true;
+  }
+
+  function printTree(node, indent, depth) {
+    if (maxDepth && depth > maxDepth) return;
+    var status = computeStatus(node);
+    var icon = statusIcon(status);
+    var prefix = '';
+    for (var p = 0; p < indent; p++) prefix += '  ';
+    var typeLabel = node.type.charAt(0).toUpperCase();
+    lines.push(prefix + icon + ' ' + node.id + ' [' + typeLabel + '] ' + node.text);
+    var children = getChildren(node.id);
+    children.sort(function(a, b) { return (a.priority || 99) - (b.priority || 99); });
+    for (var i = 0; i < children.length; i++) {
+      if (shouldShow(children[i])) {
+        printTree(children[i], indent + 1, depth + 1);
+      }
+    }
+  }
+
+  if (roots.length === 0) return 'Catalog is empty.';
+  for (var ri = 0; ri < roots.length; ri++) {
+    if (shouldShow(roots[ri])) {
+      printTree(roots[ri], 0, 1);
+    }
+  }
+
+  if (lines.length === 0) return "No nodes match filter (status_filter='" + statusFilter + "')";
+  return lines.join('\n');
+}
+
+function simulateBddStatus() {
+  var passing = [], failing = [], untested = [];
+  for (var i = 0; i < facetNodes.length; i++) {
+    var s = facetNodes[i].status || 'untested';
+    if (s === 'passing') passing.push(facetNodes[i]);
+    else if (s === 'failing') failing.push(facetNodes[i]);
+    else untested.push(facetNodes[i]);
+  }
+  var total = facetNodes.length;
+  var coverage = total > 0 ? (passing.length / total * 100) : 0;
+
+  var satisfied = 0;
+  var unsatisfiedExps = [];
+  for (var j = 0; j < expNodes.length; j++) {
+    if (computeStatus(expNodes[j]) === 'passing') satisfied++;
+    else unsatisfiedExps.push(expNodes[j]);
+  }
+  unsatisfiedExps.sort(function(a, b) { return (a.priority || 99) - (b.priority || 99); });
+
+  var lines = [
+    'Goals: ' + goalNodes.length + '  Expectations: ' + expNodes.length + '  Facets: ' + total,
+    'Passing: ' + passing.length + '  Failing: ' + failing.length + '  Untested: ' + untested.length,
+    'Coverage: ' + Math.round(coverage * 10) / 10 + '%  Satisfied: ' + satisfied + '/' + expNodes.length
+  ];
+
+  if (unsatisfiedExps.length > 0) {
+    lines.push('');
+    lines.push('Top unsatisfied (' + unsatisfiedExps.length + ' total):');
+    var showCount = Math.min(unsatisfiedExps.length, 10);
+    for (var k = 0; k < showCount; k++) {
+      var exp = unsatisfiedExps[k];
+      var parent = exp.parent ? nodeMap[exp.parent] : null;
+      var prefix = parent ? parent.id : '?';
+      var status = computeStatus(exp);
+      lines.push('  ' + exp.id + ' [' + status + '] ' + exp.text + '  (' + prefix + ')');
+      var facets = getChildren(exp.id);
+      for (var f = 0; f < facets.length; f++) {
+        var fs = facets[f].status || 'untested';
+        if (fs !== 'passing') {
+          lines.push('    ' + facets[f].id + ' [' + fs + '] ' + facets[f].text);
+        }
+      }
+    }
+  }
+  return lines.join('\n');
+}
+
+function simulateBddLocate(nodeId) {
+  if (!nodeId) return 'Please provide a node ID';
+  var node = nodeMap[nodeId];
+  if (!node) return "Node '" + nodeId + "' not found";
+
+  // Collect target facet IDs
+  var targetIds = [];
+  if (node.type === 'facet') {
+    targetIds = [nodeId];
+  } else {
+    function collectFacets(nid) {
+      var n = nodeMap[nid];
+      if (!n) return;
+      if (n.type === 'facet') targetIds.push(nid);
+      var kids = childrenMap[nid] || [];
+      for (var i = 0; i < kids.length; i++) collectFacets(kids[i]);
+    }
+    collectFacets(nodeId);
+  }
+
+  if (targetIds.length === 0) return 'No facets found under ' + nodeId;
+
+  // Gather files from Located in
+  var fileInfo = {};
+  for (var i = 0; i < targetIds.length; i++) {
+    var loc = derived.located_in[targetIds[i]];
+    if (loc) {
+      var filePart = loc.split(':')[0];
+      if (!fileInfo[filePart]) fileInfo[filePart] = [];
+      fileInfo[filePart].push(targetIds[i]);
+    }
+    // Also check test field
+    var tn = nodeMap[targetIds[i]];
+    if (tn && tn.test) {
+      var testFile = tn.test.split('::')[0];
+      if (!fileInfo[testFile]) fileInfo[testFile] = [];
+      fileInfo[testFile].push(targetIds[i] + ' (test)');
+    }
+  }
+
+  if (Object.keys(fileInfo).length === 0) {
+    return 'No coverage data for ' + nodeId + '. Run bdd_test first to build the index.';
+  }
+
+  var resultLines = ['Implementation of ' + nodeId + ' (' + node.text + '):'];
+  var sortedFiles = Object.keys(fileInfo).sort();
+  for (var fi = 0; fi < sortedFiles.length; fi++) {
+    var f = sortedFiles[fi];
+    resultLines.push('  ' + f + ': facets ' + fileInfo[f].join(', '));
+  }
+  return resultLines.join('\n');
+}
+
+function simulateBddNext() {
+  var unsatisfied = [];
+  for (var i = 0; i < expNodes.length; i++) {
+    if (computeStatus(expNodes[i]) !== 'passing') unsatisfied.push(expNodes[i]);
+  }
+  unsatisfied.sort(function(a, b) { return (a.priority || 99) - (b.priority || 99); });
+
+  if (unsatisfied.length === 0) return JSON.stringify({all_satisfied: true, message: 'All expectations satisfied!'});
+
+  var exp = unsatisfied[0];
+  var facets = getChildren(exp.id);
+  var parent = exp.parent ? nodeMap[exp.parent] : null;
+
+  var lines = [];
+  if (parent) {
+    lines.push('Goal: ' + parent.id + ' \u2014 ' + parent.text);
+    lines.push('');
+  }
+  lines.push('Expectation: ' + exp.id + ' \u2014 ' + exp.text);
+  if (exp.priority) lines.push('Priority: ' + exp.priority);
+  lines.push('');
+  if (facets.length > 0) {
+    lines.push('Facets:');
+    for (var j = 0; j < facets.length; j++) {
+      var f = facets[j];
+      var icon = statusIcon(f.status || 'untested');
+      var test = f.test ? ' (test: ' + f.test + ')' : '';
+      lines.push('  ' + icon + ' ' + f.id + ' \u2014 ' + f.text + test);
+    }
+  } else {
+    lines.push('No facets yet \u2014 decompose this expectation into testable facets.');
+  }
+  return lines.join('\n');
+}
+
+// ===== Syntax Highlighting for BDD output =====
+function highlightBddOutput(text) {
+  if (!text) return '';
+  // Escape HTML first
+  var s = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // Section delimiters: --- BDD: ... ---, --- Why ... ---, --- This ... ---
+  s = s.replace(/(---\s*(?:BDD:|Why|This).*?---)/g, '<span class="hl-delimiter">$1</span>');
+  // Bare closing delimiter ---
+  s = s.replace(/^(---)$/gm, '<span class="hl-delimiter">$1</span>');
+
+  // Status icons [+] [-] [ ]
+  s = s.replace(/\[\+\]/g, '<span class="hl-status-pass">[+]</span>');
+  s = s.replace(/\[-\]/g, '<span class="hl-status-fail">[-]</span>');
+  s = s.replace(/\[ \]/g, '<span class="hl-status-untested">[ ]</span>');
+
+  // Type markers [G] [E] [F]
+  s = s.replace(/\[G\]/g, '<span class="hl-type-g">[G]</span>');
+  s = s.replace(/\[E\]/g, '<span class="hl-type-e">[E]</span>');
+  s = s.replace(/\[F\]/g, '<span class="hl-type-f">[F]</span>');
+
+  // Goal IDs g-001
+  s = s.replace(/\b(g-\d{3})\b/g, '<span class="hl-goal-id">$1</span>');
+
+  // Expectation IDs e-001
+  s = s.replace(/\b(e-\d{3})\b/g, '<span class="hl-exp-id">$1</span>');
+
+  // Facet IDs f-001
+  s = s.replace(/\b(f-\d{3})\b/g, '<span class="hl-facet-id">$1</span>');
+
+  // File paths (word/word.ext pattern)
+  s = s.replace(/([\w][\w\/\-]*\/[\w\/\-]+\.\w+)/g, '<span class="hl-filepath">$1</span>');
+
+  // Keywords at start of line: Goal:, Expectation:, Facets:, Priority:, etc.
+  s = s.replace(/^(\s*)(Goal|Expectation|Facets|Priority|Passing|Failing|Untested|Coverage|Satisfied|Implementation|Goals|Expectations|Top unsatisfied)(:)/gm,
+    '$1<span class="hl-keyword">$2</span>$3');
+
+  // Status words in brackets [passing] [failing] [untested] [unsatisfied]
+  s = s.replace(/\[(passing)\]/g, '<span class="hl-status-pass">[$1]</span>');
+  s = s.replace(/\[(failing)\]/g, '<span class="hl-status-fail">[$1]</span>');
+  s = s.replace(/\[(untested)\]/g, '<span class="hl-status-untested">[$1]</span>');
+
+  return s;
+}
+
+// ===== Init =====
+renderTopCounts();
+renderSidebar();
+setupSearch();
+renderPreview(document.getElementById('previewContent'));
+setupFacetToggle();
+renderAll();
+
+// View tab switching
+var viewTabs = document.querySelectorAll('.view-tab');
+for (var vt = 0; vt < viewTabs.length; vt++) {
+  viewTabs[vt].addEventListener('click', function() {
+    switchView(this.getAttribute('data-view'));
+  });
+}
+
+// Global click handler for file links
+document.addEventListener('click', function(e) {
+  var link = e.target.closest('.file-link');
+  if (!link) return;
+  e.preventDefault();
+  var filePath = link.getAttribute('data-file');
+  if (filePath) {
+    state.fileDetailPath = filePath;
+    state.dirty.files = true;
+    // Switch to catalog view if on preview
+    if (state.activeView !== 'catalog') switchView('catalog');
+    renderAll();
+  }
+});
+
+</script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:#f8f9fa;color:#212529;font-size:13px;line-height:1.5}
+
+/* Top bar */
+.top-bar{background:#fff;border-bottom:1px solid #dee2e6;padding:8px 16px;position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.top-bar h1{font-size:16px;white-space:nowrap}
+.top-bar .search-box{flex:0 0 260px}
+.top-bar .search-box input{width:100%;font-size:12px;padding:4px 8px;border:1px solid #ced4da;border-radius:4px}
+.top-bar .search-box input.invalid{border-color:#dc3545}
+.top-bar .counts{margin-left:auto;font-size:11px;color:#6c757d;white-space:nowrap}
+.top-bar .counts span{font-weight:600;margin-right:8px}
+.top-bar .counts .c-goal{color:#0d6efd}
+.top-bar .counts .c-exp{color:#198754}
+.top-bar .counts .c-facet{color:#495057}
+
+/* View tabs in top bar */
+.view-tabs{display:flex;gap:0}
+.view-tab{padding:4px 14px;font-size:12px;font-weight:600;border:1px solid #ced4da;
+  background:#fff;cursor:pointer;color:#6c757d;border-right:none}
+.view-tab:first-child{border-radius:4px 0 0 4px}
+.view-tab:last-child{border-radius:0 4px 4px 0;border-right:1px solid #ced4da}
+.view-tab:hover{background:#e9ecef;color:#212529}
+.view-tab.active{background:#0d6efd;color:#fff;border-color:#0d6efd}
+
+/* Layout: sidebar + content area */
+.layout{display:flex;min-height:calc(100vh - 42px)}
+.sidebar{width:175px;min-width:175px;background:#fff;border-right:1px solid #dee2e6;
+  position:sticky;top:42px;height:calc(100vh - 42px);overflow-y:auto;padding:8px}
+
+/* View content areas */
+.view-content{flex:1;min-width:0;display:flex;flex-direction:column}
+.view-hidden{display:none!important}
+
+/* Catalog view: 2-column multi-panel grid */
+.main-grid{
+  flex:1;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  grid-template-rows:1fr 1fr;
+  gap:1px;
+  background:#dee2e6;
+  height:calc(100vh - 42px);
+}
+.panel{overflow:hidden;background:#fff;display:flex;flex-direction:column}
+.panel-header{font-size:12px;font-weight:600;color:#495057;padding:6px 12px;
+  border-bottom:1px solid #dee2e6;background:#f8f9fa;flex-shrink:0;
+  display:flex;align-items:center;gap:8px}
+.panel-body{overflow-y:auto;padding:8px 12px;flex:1;min-height:0}
+
+.panel-hierarchy{grid-column:1;grid-row:1/3}
+.panel-files{grid-column:2;grid-row:1}
+.panel-stats{grid-column:2;grid-row:2}
+
+/* Preview view: full-size dark panel */
+.preview-full{
+  flex:1;display:flex;flex-direction:column;
+  background:#1e1e1e;height:calc(100vh - 42px);
+}
+
+/* Sidebar goal cards */
+.goal-card{padding:6px 8px;margin-bottom:4px;border-radius:4px;cursor:pointer;
+  border-left:3px solid transparent;font-size:12px}
+.goal-card:hover{background:#e9ecef}
+.goal-card.active{background:#e7f1ff;border-left-color:#0d6efd}
+.goal-card .gid{font-weight:600;color:#0d6efd;font-size:11px}
+.goal-card .gname{font-weight:500}
+.goal-card .gmeta{color:#6c757d;font-size:11px}
+.goal-card .match-count{background:#0d6efd;color:#fff;border-radius:8px;padding:0 5px;font-size:10px;float:right}

@@ -1,0 +1,26 @@
+/* Collapsible facet toggle */
+.facet-toggle{
+  display:flex;align-items:center;gap:6px;
+  padding:4px 8px;margin:4px 0 2px 16px;
+  font-size:11px;color:#6c757d;cursor:pointer;
+  border-radius:4px;user-select:none;
+}
+.facet-toggle:hover{background:#f0f0f0}
+.facet-toggle .toggle-arrow{
+  display:inline-block;transition:transform 0.15s ease;
+  font-size:10px;width:12px;text-align:center;
+}
+.facet-toggle .toggle-arrow.expanded{transform:rotate(90deg)}
+.facet-toggle .toggle-summary{font-weight:500}
+.facet-toggle .toggle-status{margin-left:auto}
+
+/* Collapsed facet group */
+.facet-group.collapsed{display:none}
+
+/* Expand/Collapse all controls */
+.hierarchy-controls{display:flex;gap:4px}
+.hierarchy-controls button{
+  font-size:10px;padding:2px 8px;border:1px solid #ced4da;
+  border-radius:3px;background:#fff;cursor:pointer;color:#495057;
+}
+.hierarchy-controls button:hover{background:#e9ecef}
