@@ -1,0 +1,34 @@
+# Gateway container for the ADK Playground sandbox.
+# Runs mitmproxy with a custom addon for traffic interception and
+# a control API for managing the allowlist and approving requests.
+
+FROM mitmproxy/mitmproxy:latest
+
+# Install additional dependencies
+RUN pip install --no-cache-dir aiohttp
+
+# Copy addon and control scripts
+COPY gateway_addon.py /app/gateway_addon.py
+COPY gateway_control.py /app/gateway_control.py
+
+WORKDIR /app
+
+# Expose ports:
+# 8080 - mitmproxy (HTTP/HTTPS proxy)
+# 8081 - Control API
+EXPOSE 8080 8081
+
+# Environment variables (will be set by docker_manager)
+ENV WEBHOOK_URL=http://host.docker.internal:8765/api/sandbox/webhook
+ENV APP_ID=unknown
+ENV UNKNOWN_ACTION=ask
+ENV APPROVAL_TIMEOUT=120
+ENV ALLOWLIST=[]
+ENV CONTROL_PORT=8081
+
+# Health check
+HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=3 \
+    CMD wget -q --spider http://localhost:8081/health || exit 1
+
+# Start mitmproxy with the addon (control API is embedded in the addon)
+CMD ["mitmdump", "--mode", "regular", "--set", "block_global=false", "-s", "/app/gateway_addon.py"]

@@ -1,0 +1,1119 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "g-001",
+      "type": "goal",
+      "text": "Project Management",
+      "parent": null,
+      "priority": 1,
+      "labels": ["core"]
+    },
+    {
+      "id": "e-001",
+      "type": "expectation",
+      "text": "CRUD operations for projects including create, read, update, delete, and listing",
+      "parent": "g-001",
+      "priority": 1,
+      "labels": ["persistence"]
+    },
+    {
+      "id": "f-001",
+      "type": "facet",
+      "text": "ProjectManager.create_project generates a unique 8-char UUID, constructs a default AppConfig, calls save_project, and returns the new Project. Located in backend/project_manager.py:ProjectManager.create_project.",
+      "parent": "e-001",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-002",
+      "type": "facet",
+      "text": "ProjectManager.get_project loads a YAML file from disk, validates it with Project.model_validate, caches the result in self._cache, and returns None if the file does not exist or fails to parse. Located in backend/project_manager.py:ProjectManager.get_project.",
+      "parent": "e-001",
+      "test": "tests/test_sample_projects.py::TestSimpleAgent::test_parses_to_project",
+      "status": "untested"
+    },
+    {
+      "id": "f-003",
+      "type": "facet",
+      "text": "ProjectManager.save_project serializes a Project via model_dump(mode='json'), writes it as YAML using yaml.safe_dump, updates the in-memory cache, and triggers _save_custom_tools and _save_custom_callbacks to write Python files to disk. Located in backend/project_manager.py:ProjectManager.save_project.",
+      "parent": "e-001",
+      "test": "tests/test_callbacks.py::TestCallbackLoading::test_callback_file_created_on_disk",
+      "status": "untested"
+    },
+    {
+      "id": "f-004",
+      "type": "facet",
+      "text": "ProjectManager.delete_project removes the YAML file with path.unlink, deletes the tools directory tree via shutil.rmtree, and clears the cache entry. Returns True on success. Located in backend/project_manager.py:ProjectManager.delete_project.",
+      "parent": "e-001",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-005",
+      "type": "facet",
+      "text": "ProjectManager.list_projects globs for *.yaml files in the projects directory, loads each with yaml.safe_load, and returns a list of dicts with id, name, and description fields. Silently skips files that fail to parse. Located in backend/project_manager.py:ProjectManager.list_projects.",
+      "parent": "e-001",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "e-002",
+      "type": "expectation",
+      "text": "YAML import/export allows projects to be serialized to and deserialized from YAML strings",
+      "parent": "g-001",
+      "priority": 2,
+      "labels": ["serialization"]
+    },
+    {
+      "id": "f-006",
+      "type": "facet",
+      "text": "ProjectManager.get_project_yaml converts the project to a dict, rewrites callback module_paths to include function names (e.g. 'callbacks.custom' becomes 'callbacks.custom.set_foo'), and returns a YAML string. Located in backend/project_manager.py:ProjectManager.get_project_yaml.",
+      "parent": "e-002",
+      "test": "tests/test_project_parsing.py::TestProjectParsing::test_callback_config_parsing",
+      "status": "untested"
+    },
+    {
+      "id": "f-007",
+      "type": "facet",
+      "text": "ProjectManager.update_project_from_yaml parses a YAML string, preserves the original project_id, converts full callback paths (module.path.function_name) back to module-only paths for internal storage, validates via Project.model_validate, and saves. Located in backend/project_manager.py:ProjectManager.update_project_from_yaml.",
+      "parent": "e-002",
+      "test": "tests/test_project_parsing.py::TestProjectParsing::test_custom_callback_definition_parsing",
+      "status": "untested"
+    },
+    {
+      "id": "e-003",
+      "type": "expectation",
+      "text": "Backup system creates gzipped snapshots of projects on change and supports restore",
+      "parent": "g-001",
+      "priority": 3,
+      "labels": ["backup"]
+    },
+    {
+      "id": "f-008",
+      "type": "facet",
+      "text": "ProjectManager._backup_project computes an MD5 hash of the current YAML file, compares it to the last known hash, creates a timestamped gzipped backup only if the content changed, and calls _cleanup_old_backups to keep at most 50 backups per project. Located in backend/project_manager.py:ProjectManager._backup_project.",
+      "parent": "e-003",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-009",
+      "type": "facet",
+      "text": "ProjectManager.restore_backup reads a gzipped backup, parses and validates it as a Project, preserves the original project_id, and saves it as the current project. Returns the restored Project or None on failure. Located in backend/project_manager.py:ProjectManager.restore_backup.",
+      "parent": "e-003",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-010",
+      "type": "facet",
+      "text": "ProjectManager._backup_loop is an async background task that runs every 60 seconds, iterating over all *.yaml project files and calling _backup_project for each. Started via start_backup_service and stopped via stop_backup_service. Located in backend/project_manager.py:ProjectManager._backup_loop.",
+      "parent": "e-003",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-011",
+      "type": "facet",
+      "text": "ProjectManager._save_custom_tools groups custom tools by module_path, creates directory structures with __init__.py files, and writes Python source files with tool code, descriptions, and state key annotations. Located in backend/project_manager.py:ProjectManager._save_custom_tools.",
+      "parent": "e-001",
+      "test": "tests/test_sample_projects.py::TestToolAgent::test_custom_tool_definition",
+      "status": "untested"
+    },
+    {
+      "id": "f-012",
+      "type": "facet",
+      "text": "ProjectManager._save_custom_callbacks groups callbacks by module prefix, creates a callbacks/ directory with proper Python module structure, and writes callback code files with auto-generated headers and imports for CallbackContext and LlmResponse. Located in backend/project_manager.py:ProjectManager._save_custom_callbacks.",
+      "parent": "e-001",
+      "test": "tests/test_callbacks.py::TestCallbackLoading::test_callback_file_created_on_disk",
+      "status": "untested"
+    },
+
+    {
+      "id": "g-002",
+      "type": "goal",
+      "text": "Data Models",
+      "parent": null,
+      "priority": 2,
+      "labels": ["core"]
+    },
+    {
+      "id": "e-004",
+      "type": "expectation",
+      "text": "Pydantic models correctly represent agent configurations including LLM, Sequential, Loop, and Parallel agent types",
+      "parent": "g-002",
+      "priority": 1,
+      "labels": ["models"]
+    },
+    {
+      "id": "f-013",
+      "type": "facet",
+      "text": "LlmAgentConfig is a Pydantic model with type literal 'LlmAgent', supporting id, name, instruction, optional ModelConfig, output_key, include_contents, disallow_transfer flags, tools list (ToolConfig union), sub_agents list, and six callback config lists (before/after agent/model/tool). Located in backend/models.py:LlmAgentConfig.",
+      "parent": "e-004",
+      "test": "tests/test_project_parsing.py::TestProjectParsing::test_agent_config_parsing",
+      "status": "untested"
+    },
+    {
+      "id": "f-014",
+      "type": "facet",
+      "text": "SequentialAgentConfig defines a non-LLM orchestrator with type 'SequentialAgent', id, name, description, sub_agents list, and before/after agent callbacks. Runs sub-agents in declared order. Located in backend/models.py:SequentialAgentConfig.",
+      "parent": "e-004",
+      "test": "tests/test_project_parsing.py::TestProjectParsing::test_sequential_agent_parsing",
+      "status": "untested"
+    },
+    {
+      "id": "f-015",
+      "type": "facet",
+      "text": "LoopAgentConfig extends the non-LLM orchestrator pattern with an optional max_iterations field. Repeatedly runs its sub-agents until max_iterations is reached or an exit_loop tool is called. Located in backend/models.py:LoopAgentConfig.",
+      "parent": "e-004",
+      "test": "tests/test_project_parsing.py::TestProjectParsing::test_loop_agent_parsing",
+      "status": "untested"
+    },
+    {
+      "id": "f-016",
+      "type": "facet",
+      "text": "ParallelAgentConfig defines a non-LLM orchestrator with type 'ParallelAgent' that runs all sub-agents concurrently. Supports before/after agent callbacks. Located in backend/models.py:ParallelAgentConfig.",
+      "parent": "e-004",
+      "test": "tests/test_integration.py::TestNonLlmAgentCallbacks::test_parallel_agent_callback_executed",
+      "status": "untested"
+    },
+    {
+      "id": "e-005",
+      "type": "expectation",
+      "text": "Tool configuration models cover all tool types: function, MCP, agent, builtin, and skillset",
+      "parent": "g-002",
+      "priority": 2,
+      "labels": ["models"]
+    },
+    {
+      "id": "f-017",
+      "type": "facet",
+      "text": "ToolConfig is a Union of FunctionToolConfig (module_path reference), MCPToolConfig (wraps MCPServerConfig), AgentToolConfig (agent_id + skip_summarization), BuiltinToolConfig (name like 'google_search' or 'exit_loop'), and SkillSetToolConfig (skillset_id). Discriminated by the 'type' literal field. Located in backend/models.py:ToolConfig.",
+      "parent": "e-005",
+      "test": "tests/test_project_parsing.py::TestProjectParsing::test_builtin_tool_parsing",
+      "status": "untested"
+    },
+    {
+      "id": "f-018",
+      "type": "facet",
+      "text": "MCPServerConfig defines an MCP server connection with connection_type (stdio/sse/http), command and args for stdio, url and headers for sse/http, optional tool_filter list and tool_name_prefix for filtering, and a configurable timeout. Located in backend/models.py:MCPServerConfig.",
+      "parent": "e-005",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "e-006",
+      "type": "expectation",
+      "text": "Runtime and evaluation models correctly serialize events, sessions, and evaluation results",
+      "parent": "g-002",
+      "priority": 2,
+      "labels": ["models"]
+    },
+    {
+      "id": "f-019",
+      "type": "facet",
+      "text": "RunEvent is a Pydantic model with timestamp, event_type (one of agent_start/end, tool_call/result, model_call/response, state_change, transfer, callback_start/end/error, user_message), agent_name, optional branch for parallel tracking, and a data dict. Located in backend/models.py:RunEvent.",
+      "parent": "e-006",
+      "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_emits_events",
+      "status": "untested"
+    },
+    {
+      "id": "f-020",
+      "type": "facet",
+      "text": "RunSession tracks a complete run with id, project_id, started_at/ended_at timestamps, status (running/completed/error), events list, final_state dict, and token_counts dict. Located in backend/models.py:RunSession.",
+      "parent": "e-006",
+      "test": "tests/test_runtime.py::TestRunAgent::test_run_agent_creates_session",
+      "status": "untested"
+    },
+    {
+      "id": "f-021",
+      "type": "facet",
+      "text": "EvalSet, EvalCase, EvalInvocation, and EvalCaseResult form a hierarchy for evaluation. EvalSet has eval_cases and eval_config. EvalCase has invocations, initial_state, and expected_final_state. EvalInvocation has user_message, expected_response, expected_tool_calls with match type, and rubrics. Located in backend/models.py:EvalSet/EvalCase/EvalInvocation.",
+      "parent": "e-006",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-022",
+      "type": "facet",
+      "text": "ModelConfig supports provider-specific settings: provider literal (gemini/litellm/anthropic/openai/groq/together), model_name, optional api_base for LiteLLM, generation params (temperature, max_output_tokens, top_p, top_k), and retry/timeout settings. Uses populate_by_name for alias support. Located in backend/models.py:ModelConfig.",
+      "parent": "e-006",
+      "test": "tests/test_project_parsing.py::TestProjectParsing::test_model_config_parsing",
+      "status": "untested"
+    },
+
+    {
+      "id": "g-003",
+      "type": "goal",
+      "text": "Code Generation",
+      "parent": null,
+      "priority": 3,
+      "labels": ["core"]
+    },
+    {
+      "id": "e-007",
+      "type": "expectation",
+      "text": "generate_python_code produces valid, executable Python from a Project configuration",
+      "parent": "g-003",
+      "priority": 1,
+      "labels": ["codegen"]
+    },
+    {
+      "id": "f-023",
+      "type": "facet",
+      "text": "generate_python_code performs a topological sort of agents (sub-agents and agent-tools before parents) to ensure correct definition order, collects required imports (Agent, SequentialAgent, LoopAgent, ParallelAgent, LiteLlm, Claude, McpToolset, etc.), and generates a complete executable script ending with an App() instantiation. Located in backend/code_generator.py:generate_python_code.",
+      "parent": "e-007",
+      "test": "tests/test_project_parsing.py::TestCodeGeneration::test_generate_code_includes_agent",
+      "status": "untested"
+    },
+    {
+      "id": "f-024",
+      "type": "facet",
+      "text": "generate_agent_code generates Agent() constructor calls for LlmAgentConfig with name, model, instruction (triple-quoted), description, output_key, tools list, sub_agents, include_contents, transfer flags, and callback wrappers using _wrap_callback for instrumentation. Located in backend/code_generator.py:generate_agent_code.",
+      "parent": "e-007",
+      "test": "tests/test_project_parsing.py::TestCodeGeneration::test_generate_code_includes_agent",
+      "status": "untested"
+    },
+    {
+      "id": "f-025",
+      "type": "facet",
+      "text": "generate_agent_code produces SequentialAgent(), LoopAgent(max_iterations=N), and ParallelAgent() calls for non-LLM orchestrator types, each with sub_agents list and optional before/after agent callbacks wrapped with _wrap_callback. Located in backend/code_generator.py:generate_agent_code (SequentialAgent/LoopAgent/ParallelAgent branches).",
+      "parent": "e-007",
+      "test": "tests/test_project_parsing.py::TestCodeGeneration::test_generate_sequential_agent_code",
+      "status": "untested"
+    },
+    {
+      "id": "f-026",
+      "type": "facet",
+      "text": "generate_model_code produces provider-specific model instantiation: plain string for Gemini, LiteLlm() with retries/timeout for litellm/openai/groq/together, and Claude() for anthropic. Includes temperature, max_output_tokens, top_p, top_k, api_base where set. Located in backend/code_generator.py:generate_model_code.",
+      "parent": "e-007",
+      "test": "tests/test_project_parsing.py::TestCodeGeneration::test_generate_code_includes_agent",
+      "status": "untested"
+    },
+    {
+      "id": "f-027",
+      "type": "facet",
+      "text": "generate_tool_code dispatches on tool type: builtin returns the tool name directly, function returns the function name, agent returns AgentTool(agent=var_name), mcp returns a sanitized variable reference, and skillset returns a skillset variable reference. Located in backend/code_generator.py:generate_tool_code.",
+      "parent": "e-007",
+      "test": "tests/test_project_parsing.py::TestCodeGeneration::test_generate_code_with_builtin_tool",
+      "status": "untested"
+    },
+    {
+      "id": "e-008",
+      "type": "expectation",
+      "text": "MCP and SkillSet toolset code is correctly generated with connection params and proxy injection",
+      "parent": "g-003",
+      "priority": 2,
+      "labels": ["codegen", "mcp"]
+    },
+    {
+      "id": "f-028",
+      "type": "facet",
+      "text": "generate_mcp_toolset_code produces McpToolset() with StdioConnectionParams for stdio servers, injecting proxy environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) and Docker Chrome args for browser MCP servers (chrome-devtools-mcp). SSE servers use SseConnectionParams with url and timeout. Located in backend/code_generator.py:generate_mcp_toolset_code.",
+      "parent": "e-008",
+      "test": "tests/test_project_parsing.py::TestCodeGeneration::test_generate_loop_agent_code",
+      "status": "untested"
+    },
+    {
+      "id": "f-029",
+      "type": "facet",
+      "text": "generate_skillset_code produces a KnowledgeServiceManager instance and SkillSet() constructor call with skillset_id, project_id, manager, embedding model name, search_enabled, preload_enabled, preload_top_k, and preload_min_score settings. Located in backend/code_generator.py:generate_skillset_code.",
+      "parent": "e-008",
+      "test": "tests/test_project_parsing.py::TestProjectValidation::test_project_generates_valid_code",
+      "status": "untested"
+    },
+    {
+      "id": "f-030",
+      "type": "facet",
+      "text": "sanitize_identifier replaces any non-alphanumeric/underscore characters with underscores and prefixes with _ if the name starts with a digit, ensuring all generated variable names are valid Python identifiers. escape_triple_quoted and escape_double_quoted handle string escaping for generated code. Located in backend/code_generator.py:sanitize_identifier/escape_triple_quoted/escape_double_quoted.",
+      "parent": "e-007",
+      "test": "tests/test_project_parsing.py::TestProjectValidation::test_project_generates_valid_code",
+      "status": "untested"
+    },
+    {
+      "id": "f-031",
+      "type": "facet",
+      "text": "The topological sort in generate_python_code uses a DFS with cycle guard (visiting set) to handle circular agent references. It visits sub-agents and agent-tool dependencies before the parent agent, ensuring all referenced variables are defined before use. Located in backend/code_generator.py:generate_python_code (visit_agent closure).",
+      "parent": "e-007",
+      "test": "tests/test_runtime.py::TestRunAgent::test_generated_code_includes_all_agents",
+      "status": "untested"
+    },
+    {
+      "id": "f-032",
+      "type": "facet",
+      "text": "generate_python_code emits a _wrap_callback helper function that instruments sync and async callbacks with timing and event tracking via state keys (_cb_start_ and _cb_end_ prefixed). This wrapper is injected right after imports when custom_callbacks exist. Located in backend/code_generator.py:generate_python_code (callback wrapper section).",
+      "parent": "e-007",
+      "test": "tests/test_callbacks.py::TestCallbackErrors::test_callback_module_not_found_generates_code",
+      "status": "untested"
+    },
+
+    {
+      "id": "g-004",
+      "type": "goal",
+      "text": "Runtime Execution",
+      "parent": null,
+      "priority": 4,
+      "labels": ["core"]
+    },
+    {
+      "id": "e-009",
+      "type": "expectation",
+      "text": "RuntimeManager initializes correctly, manages sessions, and executes generated agent code",
+      "parent": "g-004",
+      "priority": 1,
+      "labels": ["runtime"]
+    },
+    {
+      "id": "f-033",
+      "type": "facet",
+      "text": "RuntimeManager.__init__ takes a projects_dir path, creates the directory if needed, and initializes empty dicts for sessions and _running flags. The projects_dir is stored as a Path object. Located in backend/runtime.py:RuntimeManager.__init__.",
+      "parent": "e-009",
+      "test": "tests/test_runtime.py::TestRuntimeManagerInit::test_runtime_manager_creates_projects_dir",
+      "status": "untested"
+    },
+    {
+      "id": "f-034",
+      "type": "facet",
+      "text": "RuntimeManager.get_session returns the RunSession for a given session_id from the in-memory sessions dict, or None if the session does not exist. Located in backend/runtime.py:RuntimeManager.get_session.",
+      "parent": "e-009",
+      "test": "tests/test_runtime.py::TestRuntimeManagerInit::test_get_nonexistent_session_returns_none",
+      "status": "untested"
+    },
+    {
+      "id": "f-035",
+      "type": "facet",
+      "text": "RuntimeManager.stop_run sets _running[session_id] to False, signaling the run_agent loop to stop at the next iteration. Located in backend/runtime.py:RuntimeManager.stop_run.",
+      "parent": "e-009",
+      "test": "tests/test_runtime.py::TestRuntimeManagerInit::test_stop_run_sets_flag",
+      "status": "untested"
+    },
+    {
+      "id": "f-036",
+      "type": "facet",
+      "text": "RuntimeManager._execute_generated_code calls generate_python_code to produce a script, executes it via exec() in an isolated namespace, and extracts the 'app' variable from the namespace. Returns the constructed ADK App object. Located in backend/runtime.py:RuntimeManager._execute_generated_code.",
+      "parent": "e-009",
+      "test": "tests/test_project_parsing.py::TestCodeExecution::test_execute_code_produces_app",
+      "status": "untested"
+    },
+    {
+      "id": "f-037",
+      "type": "facet",
+      "text": "RuntimeManager._prepare_temp_dir creates a temporary directory for a session, writes custom tool and callback Python files from the project's custom_tools and custom_callbacks code fields, creates __init__.py files, and adds the temp dir to sys.path for import resolution. Located in backend/runtime.py:RuntimeManager._prepare_temp_dir.",
+      "parent": "e-009",
+      "test": "tests/test_project_parsing.py::TestCodeExecution::test_execute_code_produces_app",
+      "status": "untested"
+    },
+    {
+      "id": "e-010",
+      "type": "expectation",
+      "text": "TrackingPlugin emits structured events for all agent lifecycle phases",
+      "parent": "g-004",
+      "priority": 1,
+      "labels": ["runtime", "tracking"]
+    },
+    {
+      "id": "f-038",
+      "type": "facet",
+      "text": "TrackingPlugin.before_agent_callback creates and emits a RunEvent with event_type='agent_start', capturing the agent name and instruction. Returns None to allow agent execution to proceed. Located in backend/runtime.py:TrackingPlugin.before_agent_callback.",
+      "parent": "e-010",
+      "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_emits_events",
+      "status": "untested"
+    },
+    {
+      "id": "f-039",
+      "type": "facet",
+      "text": "TrackingPlugin.after_agent_callback emits a RunEvent with event_type='agent_end' and the agent name. Returns None. Located in backend/runtime.py:TrackingPlugin.after_agent_callback.",
+      "parent": "e-010",
+      "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_after_agent",
+      "status": "untested"
+    },
+    {
+      "id": "f-040",
+      "type": "facet",
+      "text": "TrackingPlugin.before_model_callback emits a RunEvent with event_type='model_call' including the tool_count from llm_request.tools_dict. Returns None. Located in backend/runtime.py:TrackingPlugin.before_model_callback.",
+      "parent": "e-010",
+      "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_model_callbacks",
+      "status": "untested"
+    },
+    {
+      "id": "f-041",
+      "type": "facet",
+      "text": "TrackingPlugin.before_tool_callback emits a RunEvent with event_type='tool_call', capturing tool_name and args. TrackingPlugin.after_tool_callback emits event_type='tool_result' with the result value and any state_delta. Both return None. Located in backend/runtime.py:TrackingPlugin.before_tool_callback/after_tool_callback.",
+      "parent": "e-010",
+      "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_tool_callbacks",
+      "status": "untested"
+    },
+    {
+      "id": "f-042",
+      "type": "facet",
+      "text": "TrackingPlugin._serialize_contents converts ADK Content objects to JSON-serializable dicts, handling text parts (type='text'), function_call parts (type='function_call' with name and args), function_response parts, and thought parts. Located in backend/runtime.py:TrackingPlugin._serialize_contents.",
+      "parent": "e-010",
+      "test": "tests/test_runtime.py::TestEventSerialization::test_serialize_text_content",
+      "status": "untested"
+    },
+    {
+      "id": "e-011",
+      "type": "expectation",
+      "text": "run_agent drives a full execution loop with event streaming, session creation, and service factory usage",
+      "parent": "g-004",
+      "priority": 1,
+      "labels": ["runtime"]
+    },
+    {
+      "id": "f-043",
+      "type": "facet",
+      "text": "RuntimeManager.run_agent is an async generator that creates a RunSession, prepares the temp dir, executes generated code to get the App, creates session/memory/artifact services via factory functions, runs the ADK Runner, yields RunEvents through the event_callback, and cleans up on completion or error. Located in backend/runtime.py:RuntimeManager.run_agent.",
+      "parent": "e-011",
+      "test": "tests/test_integration.py::TestCallbackExecution::test_before_agent_callback_executed",
+      "status": "untested"
+    },
+    {
+      "id": "f-044",
+      "type": "facet",
+      "text": "create_session_service_from_uri dispatches on URI scheme: memory:// returns InMemorySessionService, sqlite:// returns SqliteSessionService, postgresql:///mysql:// returns DatabaseSessionService, agentengine:// returns VertexAiSessionService, file:// returns FileSessionService. Falls back to InMemorySessionService on import error. Located in backend/runtime.py:create_session_service_from_uri.",
+      "parent": "e-011",
+      "test": "tests/test_runtime.py::TestSessionManagement::test_list_sessions_from_service",
+      "status": "untested"
+    },
+
+    {
+      "id": "g-005",
+      "type": "goal",
+      "text": "API Routes",
+      "parent": null,
+      "priority": 5,
+      "labels": ["core"]
+    },
+    {
+      "id": "e-012",
+      "type": "expectation",
+      "text": "FastAPI routes expose project CRUD, agent management, tool management, and run endpoints",
+      "parent": "g-005",
+      "priority": 1,
+      "labels": ["api"]
+    },
+    {
+      "id": "f-045",
+      "type": "facet",
+      "text": "GET /api/projects returns project_manager.list_projects(). POST /api/projects creates via project_manager.create_project(name, description). GET /api/projects/{id} loads via project_manager.get_project(id) and raises 404 if not found. DELETE /api/projects/{id} deletes via project_manager.delete_project(id). Located in backend/main.py (project CRUD routes).",
+      "parent": "e-012",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-046",
+      "type": "facet",
+      "text": "PUT /api/projects/{id} accepts a full project JSON body, validates it as a Project model, and calls project_manager.save_project. Returns the updated project. Located in backend/main.py (PUT /api/projects/{id}).",
+      "parent": "e-012",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-047",
+      "type": "facet",
+      "text": "GET/PUT /api/projects/{id}/yaml endpoints export and import projects as YAML strings using project_manager.get_project_yaml and update_project_from_yaml respectively. Located in backend/main.py (YAML routes).",
+      "parent": "e-012",
+      "test": "tests/test_project_parsing.py::TestProjectParsing::test_callback_config_parsing",
+      "status": "untested"
+    },
+    {
+      "id": "f-048",
+      "type": "facet",
+      "text": "Agent CRUD routes: GET /api/projects/{id}/agents lists all agents, POST creates a new agent (LlmAgent, SequentialAgent, LoopAgent, or ParallelAgent based on the type field), PUT /api/projects/{id}/agents/{agent_id} updates an agent, DELETE removes an agent. All persist via project_manager.save_project. Located in backend/main.py (agent routes).",
+      "parent": "e-012",
+      "test": "tests/test_project_parsing.py::TestProjectParsing::test_agent_config_parsing",
+      "status": "untested"
+    },
+    {
+      "id": "f-049",
+      "type": "facet",
+      "text": "Tool CRUD routes: GET /api/projects/{id}/tools lists custom tools, POST /api/projects/{id}/tools creates a new CustomToolDefinition, PUT updates tool code/metadata, DELETE removes a tool and its references from agents. Located in backend/main.py (tool routes).",
+      "parent": "e-012",
+      "test": "tests/test_sample_projects.py::TestToolAgent::test_tool_configuration",
+      "status": "untested"
+    },
+    {
+      "id": "e-013",
+      "type": "expectation",
+      "text": "WebSocket and HTTP run endpoints stream agent execution events in real-time",
+      "parent": "g-005",
+      "priority": 1,
+      "labels": ["api", "websocket"]
+    },
+    {
+      "id": "f-050",
+      "type": "facet",
+      "text": "WebSocket endpoint /ws/run accepts a connection, receives a JSON message with project_id and user_message, loads the project, and streams RunEvents from runtime_manager.run_agent as JSON over the WebSocket. Handles disconnection and errors gracefully. Located in backend/main.py (WebSocket /ws/run).",
+      "parent": "e-013",
+      "test": "tests/test_integration.py::TestCallbackExecution::test_before_agent_callback_executed",
+      "status": "untested"
+    },
+    {
+      "id": "f-051",
+      "type": "facet",
+      "text": "POST /api/run is an HTTP alternative to the WebSocket that accepts project_id, user_message, and optional session_id, runs the agent synchronously via runtime_manager.run_agent, collects all events, and returns the complete list of RunEvents. Located in backend/main.py (POST /api/run).",
+      "parent": "e-013",
+      "test": "tests/test_integration.py::TestCallbackExecution::test_before_agent_callback_executed",
+      "status": "untested"
+    },
+    {
+      "id": "f-052",
+      "type": "facet",
+      "text": "MCPConnectionPool manages persistent MCP server connections with a dict-based cache keyed by server configuration (command+args for stdio, url for sse/http). Includes async locking, last-access tracking, and a cleanup task to close idle connections. Located in backend/main.py:MCPConnectionPool.",
+      "parent": "e-013",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "e-014",
+      "type": "expectation",
+      "text": "API provides model listing and MCP tool discovery endpoints",
+      "parent": "g-005",
+      "priority": 2,
+      "labels": ["api"]
+    },
+    {
+      "id": "f-053",
+      "type": "facet",
+      "text": "GET /api/models/list calls list_all_models to query each provider (Gemini, Anthropic, OpenAI, Groq, Together, Ollama) in parallel, returning ProviderModels with available model info. Located in backend/main.py (GET /api/models/list).",
+      "parent": "e-014",
+      "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration",
+      "status": "untested"
+    },
+    {
+      "id": "f-054",
+      "type": "facet",
+      "text": "POST /api/mcp/tools accepts an MCP server config, creates a toolset via MCPConnectionPool.get_toolset, calls get_tools() to discover available tools, and returns their declarations as JSON. POST /api/mcp/call invokes a specific tool and returns the result. Located in backend/main.py (MCP routes).",
+      "parent": "e-014",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-055",
+      "type": "facet",
+      "text": "AI-assisted generation endpoints: POST /api/ai/generate-agent uses an LLM to generate agent configurations from a natural language description. POST /api/ai/generate-tool generates custom tool code. These call backend/agent_runner.py:run_agent with appropriate prompts. Located in backend/main.py (AI generation routes).",
+      "parent": "e-014",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-056",
+      "type": "facet",
+      "text": "Backup routes: GET /api/projects/{id}/backups lists available backups via project_manager.list_backups. POST /api/projects/{id}/backups/{filename}/restore restores a project from a backup via project_manager.restore_backup. Located in backend/main.py (backup routes).",
+      "parent": "e-014",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+
+    {
+      "id": "g-006",
+      "type": "goal",
+      "text": "Evaluation System",
+      "parent": null,
+      "priority": 6,
+      "labels": ["evaluation"]
+    },
+    {
+      "id": "e-015",
+      "type": "expectation",
+      "text": "EvaluationService runs eval sets with ROUGE scoring and trajectory matching",
+      "parent": "g-006",
+      "priority": 1,
+      "labels": ["evaluation"]
+    },
+    {
+      "id": "f-057",
+      "type": "facet",
+      "text": "EvaluationService.run_eval_set iterates over each EvalCase in an EvalSet, runs it via run_eval_case, collects EvalCaseResults, computes overall pass rate and per-metric average scores, and returns an EvalSetResult with timing information. Located in backend/evaluation_service.py:EvaluationService.run_eval_set.",
+      "parent": "e-015",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-058",
+      "type": "facet",
+      "text": "EvaluationService.run_eval_case runs each invocation in an EvalCase sequentially via _run_invocation, collecting InvocationResults. Checks expected_final_state against actual state if configured. Aggregates metric_results and determines pass/fail. Located in backend/evaluation_service.py:EvaluationService.run_eval_case.",
+      "parent": "e-015",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-059",
+      "type": "facet",
+      "text": "RougeScorer implements ROUGE-1 unigram overlap scoring with optional Porter stemming via NLTK. Tokenizes text into lowercase words, counts overlap using Counter, and computes precision, recall, and F1. Used by ResponseEvaluator for fuzzy text matching. Located in backend/evaluation_service.py:RougeScorer.",
+      "parent": "e-015",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-060",
+      "type": "facet",
+      "text": "TrajectoryEvaluator supports three match modes: EXACT (ordered exact match of tool calls), IN_ORDER (expected tools must appear in order but not necessarily consecutively), and ANY_ORDER (all expected tools must appear regardless of order). Scores between 0.0 and 1.0. Located in backend/evaluation_service.py:TrajectoryEvaluator.",
+      "parent": "e-015",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "e-016",
+      "type": "expectation",
+      "text": "LLM-as-judge evaluation supports custom rubrics and prebuilt ADK metrics",
+      "parent": "g-006",
+      "priority": 2,
+      "labels": ["evaluation"]
+    },
+    {
+      "id": "f-061",
+      "type": "facet",
+      "text": "_run_llm_judge sends evaluation prompts to a judge model (default gemini-2.5-flash) with the actual response, expected response, and rubric text, then parses the structured score and rationale. Supports safety, hallucination, and rubric-based quality metrics. Located in backend/evaluation_service.py:_run_llm_judge.",
+      "parent": "e-016",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-062",
+      "type": "facet",
+      "text": "AdkEvaluationService bridges to ADK native evaluation by converting playground EvalCase/EvalInvocation models to ADK format via _convert_to_adk_invocation and _convert_to_adk_eval_case, running ADK evaluation, and converting results back via _convert_adk_result_to_ours. Located in backend/adk_evaluation_service.py:AdkEvaluationService.",
+      "parent": "e-016",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "e-017",
+      "type": "expectation",
+      "text": "Eval set CRUD and run endpoints are exposed through the API",
+      "parent": "g-006",
+      "priority": 2,
+      "labels": ["evaluation", "api"]
+    },
+    {
+      "id": "f-063",
+      "type": "facet",
+      "text": "GET/POST/PUT/DELETE /api/projects/{id}/eval-sets manage eval sets with full CRUD. POST /api/projects/{id}/eval-sets/{eval_set_id}/run triggers execution via EvaluationService or AdkEvaluationService based on configuration. Results are streamed back as EvalSetResult. Located in backend/main.py (eval-set routes).",
+      "parent": "e-017",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-064",
+      "type": "facet",
+      "text": "EvalConfig holds the list of enabled EvalMetricConfig items (each with metric type, threshold, and optional judge_model_options), default_trajectory_match_type, num_runs for repeated execution, and judge_model override. Used by both EvaluationService and AdkEvaluationService. Located in backend/models.py:EvalConfig.",
+      "parent": "e-017",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-065",
+      "type": "facet",
+      "text": "EvalSetResult aggregates case_results with total_cases, passed_cases, failed_cases, error_cases, per-metric pass_rates and avg_scores, overall_pass_rate, and timing. EvalCaseResult includes invocation_results, final_state comparison, and per-invocation token usage. Located in backend/models.py:EvalSetResult/EvalCaseResult.",
+      "parent": "e-017",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-066",
+      "type": "facet",
+      "text": "ResponseEvaluator uses RougeScorer to compute ROUGE-1 F1 between expected and actual responses, then compares against the configured threshold. Returns a MetricResult with score, threshold, passed flag, and optional details. Located in backend/evaluation_service.py:ResponseEvaluator.",
+      "parent": "e-015",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+
+    {
+      "id": "g-007",
+      "type": "goal",
+      "text": "Model Service",
+      "parent": null,
+      "priority": 7,
+      "labels": ["integration"]
+    },
+    {
+      "id": "e-018",
+      "type": "expectation",
+      "text": "Model service discovers and lists available models from multiple LLM providers",
+      "parent": "g-007",
+      "priority": 1,
+      "labels": ["models"]
+    },
+    {
+      "id": "f-067",
+      "type": "facet",
+      "text": "list_gemini_models uses google.genai.Client to enumerate models, filters out embedding and non-chat models, extracts display_name, description, context_window (input_token_limit), and capability flags (supports_tools, supports_vision, supports_json_mode). Returns ProviderModels. Located in backend/model_service.py:list_gemini_models.",
+      "parent": "e-018",
+      "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration",
+      "status": "untested"
+    },
+    {
+      "id": "f-068",
+      "type": "facet",
+      "text": "list_anthropic_models, list_openai_models, list_groq_models, list_together_models each query their respective provider APIs with the appropriate API key from environment. They return ProviderModels with model metadata including context window size and capability flags. Located in backend/model_service.py:list_*_models.",
+      "parent": "e-018",
+      "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration",
+      "status": "untested"
+    },
+    {
+      "id": "f-069",
+      "type": "facet",
+      "text": "list_ollama_models queries the local Ollama HTTP API at the configured base URL (defaulting to http://localhost:11434), lists running and available models, and returns them as ProviderModels. Handles connection errors gracefully. Located in backend/model_service.py:list_ollama_models.",
+      "parent": "e-018",
+      "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration",
+      "status": "untested"
+    },
+    {
+      "id": "f-070",
+      "type": "facet",
+      "text": "list_all_models runs all provider listing functions in parallel using asyncio.gather, collects ProviderModels from each, and returns the combined list. Errors from individual providers are captured in the ProviderModels.error field. Located in backend/model_service.py:list_all_models.",
+      "parent": "e-018",
+      "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration",
+      "status": "untested"
+    },
+    {
+      "id": "f-071",
+      "type": "facet",
+      "text": "ModelInfo is a Pydantic model with id (API model name), human-readable name, provider string, description, optional context_window int, and boolean flags: supports_tools, supports_vision, supports_json_mode, supports_streaming. Used as the return type in all list functions. Located in backend/model_service.py:ModelInfo.",
+      "parent": "e-018",
+      "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration",
+      "status": "untested"
+    },
+    {
+      "id": "f-072",
+      "type": "facet",
+      "text": "ProviderModels wraps a provider name, list of ModelInfo objects, and an optional error string. This structure allows the API to return partial results when some providers are unavailable. Located in backend/model_service.py:ProviderModels.",
+      "parent": "e-018",
+      "test": "tests/test_sample_projects.py::TestSimpleAgent::test_model_configuration",
+      "status": "untested"
+    },
+
+    {
+      "id": "g-008",
+      "type": "goal",
+      "text": "MCP Integration",
+      "parent": null,
+      "priority": 8,
+      "labels": ["integration"]
+    },
+    {
+      "id": "e-019",
+      "type": "expectation",
+      "text": "Known MCP servers are loaded from configuration and can be discovered by the UI",
+      "parent": "g-008",
+      "priority": 1,
+      "labels": ["mcp"]
+    },
+    {
+      "id": "f-073",
+      "type": "facet",
+      "text": "load_mcp_servers_from_file reads the mcp.json file (path from ADK_PLAYGROUND_MCP_CONFIG env or ~/.adk-playground/mcp.json), parses the standard 'mcpServers' dict format, converts each entry to MCPServerConfig with auto-detected connection_type (stdio if command present, sse/http if url present), and returns the list. Located in backend/known_mcp_servers.py:load_mcp_servers_from_file.",
+      "parent": "e-019",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-074",
+      "type": "facet",
+      "text": "KNOWN_MCP_SERVERS is a module-level list of pre-configured MCPServerConfig objects for popular MCP servers. BUILTIN_TOOLS is a list of built-in ADK tool names (google_search, exit_loop, load_memory). Both are imported by main.py for the tool discovery API. Located in backend/known_mcp_servers.py:KNOWN_MCP_SERVERS/BUILTIN_TOOLS.",
+      "parent": "e-019",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "e-020",
+      "type": "expectation",
+      "text": "MCP connection pool manages persistent connections with timeout and cleanup",
+      "parent": "g-008",
+      "priority": 1,
+      "labels": ["mcp"]
+    },
+    {
+      "id": "f-075",
+      "type": "facet",
+      "text": "MCPConnectionPool.get_toolset creates or retrieves a cached MCPToolset for a server config. Uses async locking to prevent concurrent creation of the same connection. Supports stdio (StdioConnectionParams) and sse (SseConnectionParams) connection types. Located in backend/main.py:MCPConnectionPool.get_toolset.",
+      "parent": "e-020",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-076",
+      "type": "facet",
+      "text": "MCPConnectionPool._get_server_key generates a unique cache key from server config: 'stdio:{command}:{args}' for stdio or '{type}:{url}' for sse/http. This ensures separate connections for different server configurations. Located in backend/main.py:MCPConnectionPool._get_server_key.",
+      "parent": "e-020",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-077",
+      "type": "facet",
+      "text": "generate_mcp_toolset_code detects browser MCP servers via _is_browser_mcp_server (checks server name and args for browser-related keywords) and _is_chrome_devtools_mcp (checks for chrome-devtools-mcp in args). Injects Docker Chrome args (--no-sandbox, --disable-dev-shm-usage, --headless, etc.) for container compatibility. Located in backend/code_generator.py:_is_browser_mcp_server/_is_chrome_devtools_mcp.",
+      "parent": "e-020",
+      "test": "tests/test_project_parsing.py::TestProjectValidation::test_project_generates_valid_code",
+      "status": "untested"
+    },
+    {
+      "id": "f-078",
+      "type": "facet",
+      "text": "POST /api/mcp/tools endpoint accepts a server config dict, uses MCPConnectionPool to get or create a toolset, calls get_tools() to discover available tool declarations, and returns them as JSON. Handles connection timeouts via the server config timeout field. Located in backend/main.py (POST /api/mcp/tools).",
+      "parent": "e-020",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-079",
+      "type": "facet",
+      "text": "POST /api/mcp/call invokes a specific MCP tool by name with provided arguments through the MCPConnectionPool. It finds the tool in the cached toolset, calls it with the given args, and returns the result. Located in backend/main.py (POST /api/mcp/call).",
+      "parent": "e-020",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-080",
+      "type": "facet",
+      "text": "MCPToolConfig wraps an MCPServerConfig and is part of the ToolConfig union type. When an agent has an MCP tool, code generation produces McpToolset() with the appropriate connection params and the agent references the toolset variable. Located in backend/models.py:MCPToolConfig / backend/code_generator.py:generate_tool_code.",
+      "parent": "e-019",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+
+    {
+      "id": "g-009",
+      "type": "goal",
+      "text": "Knowledge and SkillSet System",
+      "parent": null,
+      "priority": 9,
+      "labels": ["knowledge"]
+    },
+    {
+      "id": "e-021",
+      "type": "expectation",
+      "text": "KnowledgeServiceManager and SkillSetStore provide vector-based semantic search for agent knowledge",
+      "parent": "g-009",
+      "priority": 1,
+      "labels": ["knowledge"]
+    },
+    {
+      "id": "f-081",
+      "type": "facet",
+      "text": "SkillSetStore.add takes a text string, generates an embedding via _embed (using google.genai EmbedContentConfig), creates a KnowledgeEntry with a hash-based ID, and appends it to the in-memory entries list. Persists to disk as JSON. Located in backend/knowledge_service.py:SkillSetStore.add.",
+      "parent": "e-021",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-082",
+      "type": "facet",
+      "text": "SkillSetStore.search embeds the query text, computes cosine_similarity against all stored entries, filters by min_score, sorts by descending score, and returns the top_k SearchResult objects. Located in backend/knowledge_service.py:SkillSetStore.search.",
+      "parent": "e-021",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-083",
+      "type": "facet",
+      "text": "cosine_similarity computes the dot product of two numpy vectors divided by the product of their norms. Returns 0.0 if either vector has zero norm. Used by SkillSetStore.search for ranking results. Located in backend/knowledge_service.py:cosine_similarity.",
+      "parent": "e-021",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-084",
+      "type": "facet",
+      "text": "chunk_text splits long text into overlapping chunks of a configurable size (default 500 chars) with overlap (default 100 chars), suitable for embedding. Used when adding long documents. fetch_url_content retrieves and extracts text from URLs using aiohttp. Located in backend/knowledge_service.py:chunk_text/fetch_url_content.",
+      "parent": "e-021",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "e-022",
+      "type": "expectation",
+      "text": "SkillSet toolset integrates with ADK agents for knowledge-augmented generation",
+      "parent": "g-009",
+      "priority": 1,
+      "labels": ["knowledge", "toolset"]
+    },
+    {
+      "id": "f-085",
+      "type": "facet",
+      "text": "SearchSkillSetTool extends BaseTool with a run_async method that takes a 'query' arg, calls SkillSetStore.search, and returns formatted results as a string. The _get_declaration method returns a FunctionDeclaration for the search tool. Located in backend/skillset.py:SearchSkillSetTool.",
+      "parent": "e-022",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-086",
+      "type": "facet",
+      "text": "SkillSet extends BaseToolset with get_tools (returns SearchSkillSetTool) and process_llm_request for knowledge preloading. When preload_enabled is True, it searches the knowledge store using the user message, injects relevant context into the LLM request system instruction. Located in backend/skillset.py:SkillSet.",
+      "parent": "e-022",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-087",
+      "type": "facet",
+      "text": "KnowledgeServiceManager manages multiple named SkillSetStore instances per project, creating and caching stores on demand. Stores are persisted to ~/.adk-playground/skillsets/{project_id}/{skillset_id}/ as JSON files. Located in backend/knowledge_service.py:KnowledgeServiceManager.",
+      "parent": "e-021",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-088",
+      "type": "facet",
+      "text": "SkillSetStore._embed and _embed_batch use google.genai Client with EmbedContentConfig to generate embeddings. _embed handles single texts, _embed_batch processes multiple texts efficiently. Both fall back gracefully if google-genai is not installed (EMBEDDINGS_AVAILABLE flag). Located in backend/knowledge_service.py:SkillSetStore._embed/_embed_batch.",
+      "parent": "e-021",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+
+    {
+      "id": "g-010",
+      "type": "goal",
+      "text": "Sandbox and Docker",
+      "parent": null,
+      "priority": 10,
+      "labels": ["sandbox"]
+    },
+    {
+      "id": "e-023",
+      "type": "expectation",
+      "text": "SandboxManager controls Docker container lifecycle for isolated agent execution",
+      "parent": "g-010",
+      "priority": 1,
+      "labels": ["sandbox", "docker"]
+    },
+    {
+      "id": "f-089",
+      "type": "facet",
+      "text": "SandboxManager.start_sandbox creates a gateway container (mitmproxy), an agent runner container, and optional MCP server containers based on the SandboxConfig. It builds or pulls required Docker images, sets up networking, and configures volume mounts for storage services. Located in backend/sandbox/docker_manager.py:SandboxManager.start_sandbox.",
+      "parent": "e-023",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-090",
+      "type": "facet",
+      "text": "SandboxManager.stop_sandbox stops and removes all containers associated with a sandbox (gateway, runner, MCP). Cleans up Docker networks and temporary files. Located in backend/sandbox/docker_manager.py:SandboxManager.stop_sandbox.",
+      "parent": "e-023",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-091",
+      "type": "facet",
+      "text": "SandboxManager.get_sandbox_status returns a SandboxStatus with container states (running/stopped/error) for the gateway, runner, and MCP containers. Queries Docker API for each container. Located in backend/sandbox/docker_manager.py:SandboxManager.get_sandbox_status.",
+      "parent": "e-023",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-092",
+      "type": "facet",
+      "text": "SandboxManager.send_message_to_agent sends a user message to the running agent container via HTTP, receives streamed RunEvents, and forwards them to the caller. Located in backend/sandbox/docker_manager.py:SandboxManager.send_message_to_agent.",
+      "parent": "e-023",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "e-024",
+      "type": "expectation",
+      "text": "Sandbox configuration model and persistence handles network allowlists and container settings",
+      "parent": "g-010",
+      "priority": 2,
+      "labels": ["sandbox"]
+    },
+    {
+      "id": "f-093",
+      "type": "facet",
+      "text": "SandboxConfig defines the full sandbox configuration including network_allowlist (NetworkAllowlist with AllowlistPattern entries), volume_mounts, environment variables, resource limits, and MCP server configs. Located in backend/sandbox/models.py:SandboxConfig.",
+      "parent": "e-024",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-094",
+      "type": "facet",
+      "text": "allowlist_persistence module provides load/save functions for sandbox configuration as YAML files. Handles migration from older formats and validates AllowlistPattern entries. Located in backend/sandbox/allowlist_persistence.py.",
+      "parent": "e-024",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+    {
+      "id": "f-095",
+      "type": "facet",
+      "text": "extract_storage_paths_from_project inspects session_service_uri, memory_service_uri, and artifact_service_uri for file:// and sqlite:// schemes, creates VolumeMount objects to bind-mount those paths into the container. Located in backend/sandbox/docker_manager.py:extract_storage_paths_from_project.",
+      "parent": "e-024",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_memory_service_uris",
+      "status": "untested"
+    },
+    {
+      "id": "f-096",
+      "type": "facet",
+      "text": "MCPContainerManager handles lifecycle of MCP server containers within the sandbox: creating containers with appropriate connection params, health checking, restarting on failure. Webhook handler (webhook_handler.py) receives MCP events via HTTP. Located in backend/sandbox/mcp_manager.py:MCPContainerManager / backend/sandbox/webhook_handler.py.",
+      "parent": "e-024",
+      "test": "tests/test_sample_projects.py::TestProjectValidation::test_all_sample_projects_valid",
+      "status": "untested"
+    },
+
+    {
+      "id": "g-011",
+      "type": "goal",
+      "text": "Error Handling and Resilience",
+      "parent": null,
+      "priority": 11,
+      "labels": ["reliability"]
+    },
+    {
+      "id": "e-025",
+      "type": "expectation",
+      "text": "ADK errors are parsed into actionable messages with helpful hints",
+      "parent": "g-011",
+      "priority": 1,
+      "labels": ["errors"]
+    },
+    {
+      "id": "f-097",
+      "type": "facet",
+      "text": "parse_adk_error uses regex matching to categorize common ADK errors: missing state variables ('Context variable not found'), missing artifacts, unknown tools, missing agents, rate limits, auth errors, and timeouts. Returns a dict with message, hint, and error_type. Located in backend/runtime.py:parse_adk_error.",
+      "parent": "e-025",
+      "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_emits_events",
+      "status": "untested"
+    },
+    {
+      "id": "f-098",
+      "type": "facet",
+      "text": "extract_exception_details handles Python 3.11+ ExceptionGroup (from asyncio.TaskGroup) by iterating sub-exceptions, parsing each with parse_adk_error, and combining messages and hints. Captures full stack traces for each sub-error. Located in backend/runtime.py:extract_exception_details.",
+      "parent": "e-025",
+      "test": "tests/test_runtime.py::TestTrackingPlugin::test_tracking_plugin_emits_events",
+      "status": "untested"
+    },
+    {
+      "id": "e-026",
+      "type": "expectation",
+      "text": "Callback and tool errors are captured gracefully without crashing the runtime",
+      "parent": "g-011",
+      "priority": 1,
+      "labels": ["errors", "callbacks"]
+    },
+    {
+      "id": "f-099",
+      "type": "facet",
+      "text": "Callback error events include error message, error_type, and stack_trace in the RunEvent data dict. The _wrap_callback function generated in code_generator.py catches exceptions during callback execution and records timing information via state keys. Located in backend/code_generator.py (callback wrapper) / backend/runtime.py (error handling).",
+      "parent": "e-026",
+      "test": "tests/test_callbacks.py::TestCallbackErrors::test_callback_error_captured",
+      "status": "untested"
+    },
+    {
+      "id": "f-100",
+      "type": "facet",
+      "text": "Callback module reloading: RuntimeManager removes callback modules from sys.modules before each run to ensure fresh imports. This allows live code updates without restarting the server. TestCallbackModuleReloading verifies that updated callback code is reflected after reimport. Located in backend/runtime.py (module cleanup) / tests/test_callbacks.py:TestCallbackModuleReloading.",
+      "parent": "e-026",
+      "test": "tests/test_callbacks.py::TestCallbackModuleReloading::test_module_removed_from_sys_modules",
+      "status": "untested"
+    },
+    {
+      "id": "f-101",
+      "type": "facet",
+      "text": "Projects with missing or invalid callbacks still generate code successfully. The code_generator falls back to using the full module_path as a string reference when callback definitions cannot be resolved, allowing the code to be generated even if execution would later fail. Located in backend/code_generator.py:generate_agent_code (callback fallback logic).",
+      "parent": "e-026",
+      "test": "tests/test_callbacks.py::TestCallbackErrors::test_callback_module_not_found_generates_code",
+      "status": "untested"
+    }
+  ]
+}

@@ -2,13 +2,14 @@
 set -euo pipefail
 
 # bench/run.sh — Execute one task × treatment pair
-# Usage: ./bench/run.sh --task 001-add-search --treatment baseline [--budget 0.50]
+# Usage: ./bench/run.sh --task 001-add-search --treatment baseline [--budget 0.50] [--subject subject]
 
 BENCH_DIR="$(cd "$(dirname "$0")" && pwd)"
 TASK=""
 TREATMENT=""
 BUDGET="0.50"
 MAX_TURNS=30
+SUBJECT="subject"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,16 +17,35 @@ while [[ $# -gt 0 ]]; do
     --treatment) TREATMENT="$2"; shift 2 ;;
     --budget) BUDGET="$2"; shift 2 ;;
     --max-turns) MAX_TURNS="$2"; shift 2 ;;
+    --subject) SUBJECT="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
 if [[ -z "$TASK" || -z "$TREATMENT" ]]; then
-  echo "Usage: $0 --task <task-name> --treatment <treatment-name> [--budget <usd>]" >&2
+  echo "Usage: $0 --task <task-name> --treatment <treatment-name> [--budget <usd>] [--subject <subject>]" >&2
   exit 2
 fi
 
-TASK_DIR="$BENCH_DIR/tasks/$TASK"
+# --- Read subject.json for paths ---
+SUBJECT_DIR="$BENCH_DIR/$SUBJECT"
+SUBJECT_JSON="$SUBJECT_DIR/subject.json"
+
+if [[ ! -f "$SUBJECT_JSON" ]]; then
+  echo "Subject config not found: $SUBJECT_JSON" >&2
+  exit 1
+fi
+
+# Parse subject.json
+SUBJECT_NAME=$(python3 -c "import json; print(json.load(open('$SUBJECT_JSON'))['name'])")
+TASKS_DIR_NAME=$(python3 -c "import json; print(json.load(open('$SUBJECT_JSON')).get('tasks_dir','tasks'))")
+REGRESSION_TEST_FILE=$(python3 -c "import json; print(json.load(open('$SUBJECT_JSON')).get('regression_test_file','tests/test_taskboard.py'))")
+SUBJECT_REGRESSION_BASELINE=$(python3 -c "import json; print(json.load(open('$SUBJECT_JSON')).get('regression_baseline',22))")
+SUBJECT_VENV_PYTHON=$(python3 -c "import json; print(json.load(open('$SUBJECT_JSON')).get('venv_python','.venv/bin/python3'))")
+
+export SUBJECT
+
+TASK_DIR="$BENCH_DIR/$TASKS_DIR_NAME/$TASK"
 TREATMENT_DIR="$BENCH_DIR/treatments/$TREATMENT"
 
 if [[ ! -d "$TASK_DIR" ]]; then
@@ -39,10 +59,11 @@ fi
 
 # Create timestamp for this run
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-RESULT_DIR="$BENCH_DIR/results/${TIMESTAMP}-${TASK}-${TREATMENT}"
+RESULT_DIR="$BENCH_DIR/results/${TIMESTAMP}-${SUBJECT_NAME}-${TASK}-${TREATMENT}"
 mkdir -p "$RESULT_DIR"
 
 echo "=== Bench Run ==="
+echo "Subject:   $SUBJECT ($SUBJECT_NAME)"
 echo "Task:      $TASK"
 echo "Treatment: $TREATMENT"
 echo "Budget:    \$$BUDGET"
@@ -54,7 +75,7 @@ WORKSPACE="$(mktemp -d)"
 export WORKSPACE
 echo "Workspace: $WORKSPACE"
 
-cp -r "$BENCH_DIR/subject/." "$WORKSPACE/"
+cp -r "$SUBJECT_DIR/." "$WORKSPACE/"
 
 # Initialize git in workspace
 cd "$WORKSPACE"
@@ -63,7 +84,7 @@ git add -A
 git commit -q -m "Initial commit"
 
 # Write venv python path so the Stop hook can find pytest
-BENCH_VENV_PYTHON="$BENCH_DIR/.venv/bin/python3"
+BENCH_VENV_PYTHON="$BENCH_DIR/$SUBJECT_VENV_PYTHON"
 mkdir -p "$WORKSPACE/.bdd"
 echo "$BENCH_VENV_PYTHON" > "$WORKSPACE/.bdd/venv_python"
 
@@ -78,10 +99,17 @@ _yaml_val() {
 CLAUDE_MD="$(_yaml_val claude_md)"
 PRE_PROMPT="$(_yaml_val pre_prompt)"
 
-# Copy CLAUDE.md if specified
+# Copy CLAUDE.md if specified — check for subject-specific variant first
 if [[ -n "$CLAUDE_MD" && "$CLAUDE_MD" != "null" ]]; then
-  cp "$TREATMENT_DIR/$CLAUDE_MD" "$WORKSPACE/CLAUDE.md"
-  echo "  Copied CLAUDE.md"
+  CLAUDE_MD_BASE="${CLAUDE_MD%.md}"
+  CLAUDE_MD_SUBJECT="${CLAUDE_MD_BASE}${SUBJECT##subject}.md"
+  if [[ "$SUBJECT" != "subject" && -f "$TREATMENT_DIR/$CLAUDE_MD_SUBJECT" ]]; then
+    cp "$TREATMENT_DIR/$CLAUDE_MD_SUBJECT" "$WORKSPACE/CLAUDE.md"
+    echo "  Copied CLAUDE.md (subject variant: $CLAUDE_MD_SUBJECT)"
+  else
+    cp "$TREATMENT_DIR/$CLAUDE_MD" "$WORKSPACE/CLAUDE.md"
+    echo "  Copied CLAUDE.md"
+  fi
 fi
 
 # Copy context files to .claude/rules/
@@ -200,7 +228,7 @@ cd "$WORKSPACE"
 ACCEPT_TEST=$(ls "$TASK_DIR"/test_*.py 2>/dev/null | head -1)
 if [[ -n "$ACCEPT_TEST" ]]; then
   ACCEPT_NAME=$(basename "$ACCEPT_TEST")
-  python -m pytest "tests/$ACCEPT_NAME" -v --tb=short \
+  "$BENCH_VENV_PYTHON" -m pytest "tests/$ACCEPT_NAME" -v --tb=short \
     --junitxml="$RESULT_DIR/acceptance-junit.xml" \
     > "$RESULT_DIR/acceptance-output.txt" 2>&1
   ACCEPT_PASS=$?
@@ -208,7 +236,7 @@ else
   ACCEPT_PASS=1
 fi
 
-python -m pytest tests/test_taskboard.py -v --tb=short \
+"$BENCH_VENV_PYTHON" -m pytest "$REGRESSION_TEST_FILE" -v --tb=short \
   --junitxml="$RESULT_DIR/regression-junit.xml" \
   > "$RESULT_DIR/regression-output.txt" 2>&1
 REGRESS_PASS=$?
@@ -311,7 +339,7 @@ fi
 TOKENS_TOTAL=$((TOKENS_INPUT + TOKENS_OUTPUT))
 
 # --- Step 7b: Parse JUnit XML, stop blocks, and test tampering ---
-REGRESSION_BASELINE=22
+REGRESSION_BASELINE=$SUBJECT_REGRESSION_BASELINE
 
 eval "$(python3 << JUNITEOF
 import xml.etree.ElementTree as ET
@@ -347,7 +375,7 @@ if os.path.isfile(stop_log):
     with open(stop_log) as f:
         stop_blocks = sum(1 for line in f if line.strip())
 
-# Test tampering — check if test_taskboard.py was modified
+# Test tampering — check if regression test files were modified
 tampered = False
 try:
     result = subprocess.run(
@@ -355,7 +383,11 @@ try:
         capture_output=True, text=True,
         cwd="$WORKSPACE",
     )
-    tampered = "tests/test_taskboard.py" in result.stdout
+    regression_path = "$REGRESSION_TEST_FILE"
+    for changed_file in result.stdout.strip().split("\n"):
+        if changed_file and changed_file.startswith(regression_path.rstrip("/")):
+            tampered = True
+            break
 except Exception:
     pass
 
@@ -455,6 +487,7 @@ HOOKEOF
 # --- Step 8: Write metrics.json ---
 cat > "$RESULT_DIR/metrics.json" << METRICS_EOF
 {
+  "subject": "$SUBJECT_NAME",
   "task": "$TASK",
   "treatment": "$TREATMENT",
   "timestamp": "$TIMESTAMP",

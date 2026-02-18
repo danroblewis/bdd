@@ -14,6 +14,7 @@ MAX_JOBS=3
 LOG_DIR="$BENCH_DIR/results"
 INCLUDE_SEQUENCES=false
 FILTER_SEQUENCE=""
+SUBJECT="subject"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,13 +25,24 @@ while [[ $# -gt 0 ]]; do
     --jobs) MAX_JOBS="$2"; shift 2 ;;
     --include-sequences) INCLUDE_SEQUENCES=true; shift ;;
     --sequence) FILTER_SEQUENCE="$2"; INCLUDE_SEQUENCES=true; shift 2 ;;
+    --subject) SUBJECT="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
+# Read subject.json for task directory
+SUBJECT_DIR="$BENCH_DIR/$SUBJECT"
+SUBJECT_JSON="$SUBJECT_DIR/subject.json"
+if [[ ! -f "$SUBJECT_JSON" ]]; then
+  echo "Subject config not found: $SUBJECT_JSON" >&2
+  exit 1
+fi
+TASKS_DIR_NAME=$(python3 -c "import json; print(json.load(open('$SUBJECT_JSON')).get('tasks_dir','tasks'))")
+SUBJECT_NAME=$(python3 -c "import json; print(json.load(open('$SUBJECT_JSON'))['name'])")
+
 # Discover tasks
 TASKS=()
-for d in "$BENCH_DIR"/tasks/*/; do
+for d in "$BENCH_DIR"/$TASKS_DIR_NAME/*/; do
   task_name="$(basename "$d")"
   if [[ -n "$FILTER_TASK" && "$task_name" != "$FILTER_TASK" ]]; then
     continue
@@ -66,6 +78,7 @@ SEQ_RUNS=$(( ${#SEQUENCES[@]} * ${#TREATMENTS[@]} * REPEAT ))
 TOTAL_RUNS=$((TASK_RUNS + SEQ_RUNS))
 
 echo "=== Bench Run All ==="
+echo "Subject:    $SUBJECT ($SUBJECT_NAME)"
 echo "Tasks:      ${TASKS[*]}"
 echo "Treatments: ${TREATMENTS[*]}"
 if [[ ${#SEQUENCES[@]} -gt 0 ]]; then
@@ -91,7 +104,7 @@ for trial in $(seq 1 "$REPEAT"); do
       done
       LOG_FILE="$LOG_DIR/run-${task}-${treatment}.log"
       echo "[$(date +%H:%M:%S)] Starting: $task × $treatment (trial $trial)"
-      "$BENCH_DIR/run.sh" --task "$task" --treatment "$treatment" --budget "$BUDGET" \
+      "$BENCH_DIR/run.sh" --task "$task" --treatment "$treatment" --budget "$BUDGET" --subject "$SUBJECT" \
         > "$LOG_FILE" 2>&1 &
     done
   done

@@ -11,9 +11,21 @@ BENCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BDD_SERVER="$(cd "$(dirname "$0")/../../.." && pwd)/bdd_server.py"
 HOOK_SCRIPT="$(cd "$(dirname "$0")/../../.." && pwd)/framework/hooks/inject-context.sh"
 WRITE_HOOK_SCRIPT="$(cd "$(dirname "$0")/../../.." && pwd)/framework/hooks/inject-write-context.sh"
-VENV_PYTHON="$BENCH_ROOT/.venv/bin/python3"
+# --- Subject-aware paths ---
+SUBJECT_DIR="$BENCH_ROOT/${SUBJECT:-subject}"
+if [[ -f "$SUBJECT_DIR/subject.json" ]]; then
+  SUBJECT_VENV=$(python3 -c "import json; print(json.load(open('$SUBJECT_DIR/subject.json')).get('venv_python','.venv/bin/python3'))")
+  VENV_PYTHON="$BENCH_ROOT/$SUBJECT_VENV"
+else
+  VENV_PYTHON="$BENCH_ROOT/.venv/bin/python3"
+fi
 
-# --- catalog.json (enriched descriptions of existing functionality) ---
+# --- catalog.json (from subject dir or inline) ---
+if [[ -f "$SUBJECT_DIR/catalog.json" ]]; then
+  cp "$SUBJECT_DIR/catalog.json" catalog.json
+  echo "  Copied catalog.json from $SUBJECT_DIR"
+else
+# --- inline catalog.json for taskboard subject ---
 cat > catalog.json << 'CATALOG_EOF'
 {
   "version": 1,
@@ -189,8 +201,13 @@ cat > catalog.json << 'CATALOG_EOF'
   ]
 }
 CATALOG_EOF
+fi
 
-# --- bdd.json (test config — cobertura coverage for index building) ---
+# --- bdd.json (from subject dir or inline) ---
+if [[ -f "$SUBJECT_DIR/bdd.json" ]]; then
+  cp "$SUBJECT_DIR/bdd.json" bdd.json
+  echo "  Copied bdd.json from $SUBJECT_DIR"
+else
 # Uses the bench venv python which has pytest-cov installed
 cat > bdd.json << EOF
 {
@@ -201,6 +218,7 @@ cat > bdd.json << EOF
   "coverage_file": ".bdd/coverage.xml"
 }
 EOF
+fi
 
 # --- .mcp.json (registers bdd_server.py with excluded tools) ---
 cat > .mcp.json << EOF

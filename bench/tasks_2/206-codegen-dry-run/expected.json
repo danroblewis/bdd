@@ -1,0 +1,1 @@
+{"expected_files": ["backend/code_generator.py", "backend/main.py"], "optional_files": [], "expected_lines_added": {"min": 20, "target": 45, "max": 90}, "noise_files": [".claude/settings.json", "CLAUDE.md"]}

@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "example-custom-server": {
+      "command": "npx",
+      "args": ["-y", "@package/example-server"],
+      "env": {
+        "API_KEY": "your-api-key-here"
+      },
+      "description": "An example custom MCP server",
+      "timeout": 30.0,
+      "tool_filter": null
+    },
+    "another-server": {
+      "command": "python3",
+      "args": ["/path/to/your/server.py"],
+      "description": "Another custom server",
+      "timeout": 10.0
+    }
+  }
+}
+

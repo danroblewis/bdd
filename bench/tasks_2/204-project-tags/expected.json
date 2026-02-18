@@ -1,0 +1,1 @@
+{"expected_files": ["backend/models.py", "backend/main.py"], "optional_files": ["backend/project_manager.py"], "expected_lines_added": {"min": 10, "target": 35, "max": 80}, "noise_files": [".claude/settings.json", "CLAUDE.md"]}

@@ -1,0 +1,1 @@
+Add a project duplication feature. Add a `duplicate_project(project_id: str, new_name: str) -> Project` method to `ProjectManager` that creates a deep copy of a project with a new ID and name. Also add a POST `/api/projects/{project_id}/duplicate` endpoint in `main.py` that accepts `{"name": "New Name"}` and returns the duplicated project.

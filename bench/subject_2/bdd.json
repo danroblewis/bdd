@@ -1,0 +1,7 @@
+{
+  "test_command": "$VENV_PYTHON -m pytest tests/ -v --tb=short --junitxml=.bdd/results.xml --cov=backend --cov-report=xml:.bdd/coverage.xml",
+  "results_format": "junit",
+  "results_file": ".bdd/results.xml",
+  "coverage_format": "cobertura",
+  "coverage_file": ".bdd/coverage.xml"
+}

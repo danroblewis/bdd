@@ -1,0 +1,123 @@
+.model-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.model-config-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.model-config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 100px;
+  flex: 1;
+}
+
+.model-config-field label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.model-config-field input,
+.model-config-field select {
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border-color, #3a3a3a);
+  border-radius: 6px;
+  background: var(--input-bg, #1e1e1e);
+  color: var(--text-color, #e0e0e0);
+}
+
+.model-config-field input:focus,
+.model-config-field select:focus {
+  outline: none;
+  border-color: var(--accent-color, #7c3aed);
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2);
+}
+
+.model-config-field input[type="number"] {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.model-config-field input::placeholder {
+  color: var(--text-muted, #666);
+}
+
+/* Test button field */
+.model-test-field {
+  flex: 0 0 auto !important;
+  min-width: 80px;
+}
+
+.model-test-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border-color, #3a3a3a);
+  border-radius: 6px;
+  background: var(--bg-tertiary, #2a2a2a);
+  color: var(--text-color, #e0e0e0);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.model-test-btn:hover:not(:disabled) {
+  background: var(--accent-color, #7c3aed);
+  border-color: var(--accent-color, #7c3aed);
+  color: white;
+}
+
+.model-test-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.model-test-btn.success {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: #22c55e;
+  color: #22c55e;
+}
+
+.model-test-btn.error {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.model-test-btn .spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive: stack on smaller screens */
+@media (max-width: 600px) {
+  .model-config-row {
+    flex-direction: column;
+  }
+  
+  .model-config-field {
+    flex: 1 1 100% !important;
+  }
+  
+  .model-test-field {
+    flex: 1 1 100% !important;
+  }
+}
+

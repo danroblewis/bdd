@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+# Python dist (but not adk_playground/frontend/dist which is needed for packaging)
+/dist/
+build/
+!adk_playground/frontend/dist/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+# Note: frontend/dist/ is included in the repo for uvx/pip installs
+# frontend/dist/
+.vite/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific
+# Note: projects/ directory is now user data and should not be in the repo
+# It's stored in ~/adk_tmp/projects by default (configurable via ADK_PLAYGROUND_PROJECTS_DIR)
+projects/
+*.log
+*.sqlite
+*.db
+
+# Environment variables
+.env
+.env.local

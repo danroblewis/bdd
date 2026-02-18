@@ -1,0 +1,1 @@
+{"expected_files": ["backend/evaluation_service.py"], "optional_files": ["backend/models.py"], "expected_lines_added": {"min": 5, "target": 20, "max": 50}, "noise_files": [".claude/settings.json", "CLAUDE.md"]}

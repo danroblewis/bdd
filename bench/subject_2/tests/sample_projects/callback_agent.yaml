@@ -1,0 +1,67 @@
+# Agent project with callbacks for testing
+id: callback_test
+name: Callback Test Project
+description: A project with custom callbacks
+
+app:
+  id: app_callback
+  name: Callback App
+  root_agent_id: callback_agent
+  session_service_uri: "memory://"
+  memory_service_uri: "memory://"
+  artifact_service_uri: "memory://"
+  state_keys:
+    - name: callback_ran
+      description: Flag set by the callback
+      type: boolean
+      default_value: false
+    - name: callback_timestamp
+      description: Timestamp set by the callback
+      type: string
+      default_value: ""
+
+agents:
+  - type: LlmAgent
+    id: callback_agent
+    name: callback_tester
+    description: An agent with callbacks
+    instruction: |
+      You are a test agent. Simply respond with "OK" to any message.
+    before_agent_callbacks:
+      - module_path: callbacks.custom.set_callback_flag
+    after_agent_callbacks:
+      - module_path: callbacks.custom.set_callback_timestamp
+    model:
+      provider: gemini
+      model_name: gemini-2.0-flash
+
+custom_callbacks:
+  - id: callback_before
+    name: set_callback_flag
+    description: Sets the callback_ran flag to true
+    module_path: callbacks.custom
+    code: |
+      from google.adk.agents.callback_context import CallbackContext
+      from typing import Optional
+      from google.genai import types
+      
+      def set_callback_flag(callback_context: CallbackContext) -> Optional[types.Content]:
+          """Sets callback_ran to true before agent runs."""
+          callback_context.state['callback_ran'] = True
+          return None
+          
+  - id: callback_after
+    name: set_callback_timestamp
+    description: Sets the callback timestamp after agent runs
+    module_path: callbacks.custom
+    code: |
+      from google.adk.agents.callback_context import CallbackContext
+      from typing import Optional
+      from google.genai import types
+      import datetime
+      
+      def set_callback_timestamp(callback_context: CallbackContext) -> Optional[types.Content]:
+          """Sets callback_timestamp after agent runs."""
+          callback_context.state['callback_timestamp'] = str(datetime.datetime.now())
+          return None
+

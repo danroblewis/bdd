@@ -1,0 +1,53 @@
+# Sequential agent project for testing
+id: sequential_test
+name: Sequential Test Project
+description: A project with sequential agent orchestration
+
+app:
+  id: app_seq
+  name: Sequential App
+  root_agent_id: pipeline_agent
+  session_service_uri: "memory://"
+  memory_service_uri: "memory://"
+  artifact_service_uri: "memory://"
+  state_keys:
+    - name: step1_done
+      description: Flag set by step 1
+      type: boolean
+      default_value: false
+    - name: step2_done
+      description: Flag set by step 2
+      type: boolean
+      default_value: false
+
+agents:
+  - type: SequentialAgent
+    id: pipeline_agent
+    name: pipeline
+    description: Runs agents in sequence
+    sub_agents:
+      - step1_agent
+      - step2_agent
+      
+  - type: LlmAgent
+    id: step1_agent
+    name: step1
+    description: First step in the pipeline
+    instruction: |
+      You are step 1. Say "Step 1 complete" and set step1_done to true.
+    output_key: step1_output
+    model:
+      provider: gemini
+      model_name: gemini-2.0-flash
+      
+  - type: LlmAgent
+    id: step2_agent
+    name: step2
+    description: Second step in the pipeline
+    instruction: |
+      You are step 2. Check if step1_done is true, then say "Step 2 complete".
+    output_key: step2_output
+    model:
+      provider: gemini
+      model_name: gemini-2.0-flash
+

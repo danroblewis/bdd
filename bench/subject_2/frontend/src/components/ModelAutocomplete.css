@@ -1,0 +1,146 @@
+.model-autocomplete {
+  position: relative;
+  flex: 1;
+}
+
+.model-autocomplete-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color, #3a3a3a);
+  border-radius: 6px;
+  background: var(--input-bg, #1e1e1e);
+  color: var(--text-color, #e0e0e0);
+  font-size: 14px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.model-autocomplete-input:focus {
+  outline: none;
+  border-color: var(--accent-color, #7c3aed);
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2);
+}
+
+.model-autocomplete-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--dropdown-bg, #252525);
+  border: 1px solid var(--border-color, #3a3a3a);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  margin-top: 4px;
+}
+
+/* Portal version - rendered at document body level */
+.model-autocomplete-dropdown-portal {
+  position: fixed;
+  z-index: 99999;
+  margin-top: 0;
+}
+
+.model-autocomplete-loading,
+.model-autocomplete-error,
+.model-autocomplete-empty {
+  padding: 12px 16px;
+  color: var(--text-muted, #888);
+  font-size: 13px;
+}
+
+.model-autocomplete-error {
+  color: #ef4444;
+}
+
+.model-autocomplete-list {
+  padding: 4px;
+}
+
+.model-autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+
+.model-autocomplete-item:hover,
+.model-autocomplete-item.highlighted {
+  background: var(--hover-bg, #333);
+}
+
+.provider-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+
+.provider-gemini {
+  background: linear-gradient(135deg, #4285f4, #34a853);
+  color: white;
+}
+
+.provider-anthropic {
+  background: linear-gradient(135deg, #d97706, #b45309);
+  color: white;
+}
+
+.provider-openai {
+  background: linear-gradient(135deg, #10a37f, #059669);
+  color: white;
+}
+
+.provider-groq {
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  color: white;
+}
+
+.provider-together {
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  color: white;
+}
+
+.provider-ollama {
+  background: linear-gradient(135deg, #6b7280, #4b5563);
+  color: white;
+}
+
+.provider-other {
+  background: var(--border-color, #3a3a3a);
+  color: var(--text-color, #e0e0e0);
+}
+
+.model-id {
+  flex: 1;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  color: var(--text-color, #e0e0e0);
+}
+
+.model-context {
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  background: var(--surface-bg, #2a2a2a);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.model-feature {
+  font-size: 12px;
+}
+
+.model-autocomplete-more {
+  padding: 8px 12px;
+  color: var(--text-muted, #888);
+  font-size: 12px;
+  text-align: center;
+  border-top: 1px solid var(--border-color, #3a3a3a);
+}
+

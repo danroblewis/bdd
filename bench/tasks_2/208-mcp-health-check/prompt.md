@@ -1,0 +1,1 @@
+Add an MCP server health check endpoint. Add a `POST /api/mcp/health-check` endpoint in main.py that accepts a server config dict, attempts to connect and list tools (with a timeout), and returns `{"healthy": bool, "tools_count": int, "error": str|null, "latency_ms": float}`. Use the existing MCPConnectionPool.

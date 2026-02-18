@@ -13,6 +13,7 @@ SEQUENCE=""
 TREATMENT=""
 BUDGET="0.50"
 MAX_TURNS=30
+SUBJECT="subject"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -20,6 +21,7 @@ while [[ $# -gt 0 ]]; do
     --treatment) TREATMENT="$2"; shift 2 ;;
     --budget) BUDGET="$2"; shift 2 ;;
     --max-turns) MAX_TURNS="$2"; shift 2 ;;
+    --subject) SUBJECT="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -40,6 +42,20 @@ if [[ ! -d "$TREATMENT_DIR" ]]; then
   echo "Treatment directory not found: $TREATMENT_DIR" >&2
   exit 1
 fi
+
+# --- Read subject.json ---
+SUBJECT_DIR="$BENCH_DIR/$SUBJECT"
+SUBJECT_JSON="$SUBJECT_DIR/subject.json"
+if [[ ! -f "$SUBJECT_JSON" ]]; then
+  echo "Subject config not found: $SUBJECT_JSON" >&2
+  exit 1
+fi
+SUBJECT_NAME=$(python3 -c "import json; print(json.load(open('$SUBJECT_JSON'))['name'])")
+TASKS_DIR_NAME=$(python3 -c "import json; print(json.load(open('$SUBJECT_JSON')).get('tasks_dir','tasks'))")
+REGRESSION_TEST_FILE=$(python3 -c "import json; print(json.load(open('$SUBJECT_JSON')).get('regression_test_file','tests/test_taskboard.py'))")
+SUBJECT_REGRESSION_BASELINE=$(python3 -c "import json; print(json.load(open('$SUBJECT_JSON')).get('regression_baseline',22))")
+SUBJECT_VENV_PYTHON=$(python3 -c "import json; print(json.load(open('$SUBJECT_JSON')).get('venv_python','.venv/bin/python3'))")
+export SUBJECT
 
 # --- Parse sequence YAML (simple line-based, no yq) ---
 SEQ_NAME=""
@@ -68,8 +84,8 @@ fi
 
 # Validate all task directories exist
 for step_task in "${STEPS[@]}"; do
-  if [[ ! -d "$BENCH_DIR/tasks/$step_task" ]]; then
-    echo "Task directory not found for step: $BENCH_DIR/tasks/$step_task" >&2
+  if [[ ! -d "$BENCH_DIR/$TASKS_DIR_NAME/$step_task" ]]; then
+    echo "Task directory not found for step: $BENCH_DIR/$TASKS_DIR_NAME/$step_task" >&2
     exit 1
   fi
 done
@@ -92,7 +108,7 @@ WORKSPACE="$(mktemp -d)"
 export WORKSPACE
 echo "Workspace: $WORKSPACE"
 
-cp -r "$BENCH_DIR/subject/." "$WORKSPACE/"
+cp -r "$SUBJECT_DIR/." "$WORKSPACE/"
 
 cd "$WORKSPACE"
 git init -q
@@ -100,7 +116,7 @@ git add -A
 git commit -q -m "Initial commit"
 
 # Write venv python path
-BENCH_VENV_PYTHON="$BENCH_DIR/.venv/bin/python3"
+BENCH_VENV_PYTHON="$BENCH_DIR/$SUBJECT_VENV_PYTHON"
 mkdir -p "$WORKSPACE/.bdd"
 echo "$BENCH_VENV_PYTHON" > "$WORKSPACE/.bdd/venv_python"
 
@@ -168,12 +184,12 @@ TOTAL_BUDGET=0
 PRIOR_REGRESSIONS=0
 STEP_SUMMARIES="["
 
-REGRESSION_BASELINE=22
+REGRESSION_BASELINE=$SUBJECT_REGRESSION_BASELINE
 
 for ((STEP_IDX=0; STEP_IDX<NUM_STEPS; STEP_IDX++)); do
   STEP_NUM=$((STEP_IDX + 1))
   STEP_TASK="${STEPS[$STEP_IDX]}"
-  TASK_DIR="$BENCH_DIR/tasks/$STEP_TASK"
+  TASK_DIR="$BENCH_DIR/$TASKS_DIR_NAME/$STEP_TASK"
   STEP_DIR="$RESULT_DIR/step-${STEP_NUM}-${STEP_TASK}"
   mkdir -p "$STEP_DIR"
 
@@ -245,8 +261,8 @@ for ((STEP_IDX=0; STEP_IDX<NUM_STEPS; STEP_IDX++)); do
     ACCEPT_PASS=$?
   fi
 
-  # --- Run regression test (test_taskboard.py) ---
-  python -m pytest tests/test_taskboard.py -v --tb=short \
+  # --- Run regression test ---
+  python -m pytest "$REGRESSION_TEST_FILE" -v --tb=short \
     --junitxml="$STEP_DIR/regression-junit.xml" \
     > "$STEP_DIR/regression-output.txt" 2>&1
   REGRESS_PASS=$?

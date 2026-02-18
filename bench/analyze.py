@@ -2,6 +2,7 @@
 """Analyze bench results and produce comparison tables."""
 
 import json
+import re
 import sys
 from pathlib import Path
 from collections import defaultdict
@@ -1537,12 +1538,18 @@ td.c{text-align:center}
 .diag-section strong{font-size:12px}
 .diag-section ul{margin:4px 0 4px 20px;font-size:12px}
 .diag-section .metric{font-size:12px;margin:2px 0}
+.chart-wrap{margin-bottom:20px;overflow-x:auto}
+.chart-wrap svg{display:block}
+.chart-legend{display:flex;gap:16px;margin:6px 0 4px;font-size:11px;color:#495057}
+.chart-legend span{display:inline-flex;align-items:center;gap:4px}
+.chart-legend .swatch{display:inline-block;width:12px;height:12px;border-radius:2px}
 </style>
 </head>
 <body>
 <div class="top-bar">
   <h1>BDD Bench Report</h1>
   <div class="filters">
+    <label>Subject:</label><input id="f-subject" placeholder="regex">
     <label>Treatment:</label><input id="f-treatment" placeholder="regex">
     <label>Task:</label><input id="f-task" placeholder="regex">
     <label>From:</label><input id="f-start" type="datetime-local">
@@ -1558,6 +1565,7 @@ td.c{text-align:center}
   <button data-tab="context">Context</button>
   <button data-tab="diagnostics">Diagnostics</button>
   <button data-tab="detail">Detail</button>
+  <button data-tab="quality">Quality</button>
   <button data-tab="sequences">Sequences</button>
 </div>
 <div id="tab-summary" class="tab-content active"></div>
@@ -1567,6 +1575,7 @@ td.c{text-align:center}
 <div id="tab-context" class="tab-content"></div>
 <div id="tab-diagnostics" class="tab-content"></div>
 <div id="tab-detail" class="tab-content"></div>
+<div id="tab-quality" class="tab-content"></div>
 <div id="tab-sequences" class="tab-content"></div>
 
 <script>
@@ -1607,6 +1616,116 @@ function passClass(pctStr) {
   if (v >= 90) return 'pass-high';
   if (v >= 40) return 'pass-mid';
   return 'pass-low';
+}
+
+// === Chart helpers ===
+function pctColor(pct) {
+  var hue = Math.round(Math.min(100, Math.max(0, pct)) * 1.2);
+  return 'hsl(' + hue + ',70%,42%)';
+}
+
+function svgEl(tag, attrs) {
+  var e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  if (attrs) Object.keys(attrs).forEach(function(k) { e.setAttribute(k, attrs[k]); });
+  return e;
+}
+
+function renderBarChart(container, data, opts) {
+  // data: [{label, value, color?}]
+  // opts: {suffix, maxValue, decimals, colorFn, width}
+  opts = opts || {};
+  if (!data.length) return;
+  var suffix = opts.suffix || '';
+  var dec = opts.decimals != null ? opts.decimals : 0;
+  var maxVal = opts.maxValue || Math.max.apply(null, data.map(function(d){return d.value})) || 1;
+  var W = opts.width || 660;
+  var barH = 22, gap = 4, labelW = 150, valueW = 60, chartW = W - labelW - valueW - 10;
+  var H = data.length * (barH + gap) + gap;
+
+  var div = document.createElement('div'); div.className = 'chart-wrap';
+  var svg = svgEl('svg', {width: W, viewBox: '0 0 ' + W + ' ' + H});
+  svg.style.maxWidth = W + 'px';
+
+  data.forEach(function(d, i) {
+    var y = gap + i * (barH + gap);
+    var barW = Math.max(0, (d.value / maxVal) * chartW);
+    var color = d.color || (opts.colorFn ? opts.colorFn(d.value) : pctColor(d.value));
+
+    var label = svgEl('text', {x: labelW - 6, y: y + barH / 2 + 4, 'text-anchor': 'end',
+      'font-size': '11', fill: '#495057', 'font-family': 'inherit'});
+    label.textContent = d.label.length > 20 ? d.label.substring(0, 19) + '\u2026' : d.label;
+    svg.appendChild(label);
+
+    svg.appendChild(svgEl('rect', {x: labelW, y: y, width: chartW, height: barH, fill: '#f1f3f5', rx: 3}));
+    if (barW > 0) svg.appendChild(svgEl('rect', {x: labelW, y: y, width: barW, height: barH, fill: color, rx: 3}));
+
+    var val = svgEl('text', {x: labelW + chartW + 8, y: y + barH / 2 + 4,
+      'font-size': '11', 'font-weight': '600', fill: '#212529', 'font-family': 'inherit'});
+    val.textContent = d.value.toFixed(dec) + suffix;
+    svg.appendChild(val);
+  });
+
+  div.appendChild(svg);
+  container.appendChild(div);
+}
+
+function renderGroupedBarChart(container, data, opts) {
+  // data: [{label, values: [{value, color, legendLabel}]}]
+  // opts: {suffix, maxValue, decimals, width, legend: [{label, color}]}
+  opts = opts || {};
+  if (!data.length) return;
+  var suffix = opts.suffix || '';
+  var dec = opts.decimals != null ? opts.decimals : 0;
+  var nGroups = data[0].values.length;
+  var allVals = []; data.forEach(function(d) { d.values.forEach(function(v) { allVals.push(v.value); }); });
+  var maxVal = opts.maxValue || Math.max.apply(null, allVals) || 1;
+  var W = opts.width || 660;
+  var subH = 16, subGap = 2, groupGap = 6, labelW = 150, valueW = 60;
+  var chartW = W - labelW - valueW - 10;
+  var groupH = nGroups * (subH + subGap) - subGap;
+  var H = data.length * (groupH + groupGap) + groupGap;
+
+  var div = document.createElement('div'); div.className = 'chart-wrap';
+
+  // Legend
+  if (opts.legend) {
+    var leg = document.createElement('div'); leg.className = 'chart-legend';
+    opts.legend.forEach(function(l) {
+      var sp = document.createElement('span');
+      var sw = document.createElement('span'); sw.className = 'swatch'; sw.style.background = l.color;
+      sp.appendChild(sw); sp.appendChild(document.createTextNode(l.label));
+      leg.appendChild(sp);
+    });
+    div.appendChild(leg);
+  }
+
+  var svg = svgEl('svg', {width: W, viewBox: '0 0 ' + W + ' ' + H});
+  svg.style.maxWidth = W + 'px';
+
+  data.forEach(function(d, i) {
+    var gy = groupGap + i * (groupH + groupGap);
+
+    var label = svgEl('text', {x: labelW - 6, y: gy + groupH / 2 + 4, 'text-anchor': 'end',
+      'font-size': '11', fill: '#495057', 'font-family': 'inherit'});
+    label.textContent = d.label.length > 20 ? d.label.substring(0, 19) + '\u2026' : d.label;
+    svg.appendChild(label);
+
+    d.values.forEach(function(v, j) {
+      var y = gy + j * (subH + subGap);
+      var barW = Math.max(0, (v.value / maxVal) * chartW);
+
+      svg.appendChild(svgEl('rect', {x: labelW, y: y, width: chartW, height: subH, fill: '#f1f3f5', rx: 2}));
+      if (barW > 0) svg.appendChild(svgEl('rect', {x: labelW, y: y, width: barW, height: subH, fill: v.color, rx: 2}));
+
+      var val = svgEl('text', {x: labelW + chartW + 8, y: y + subH / 2 + 4,
+        'font-size': '10', fill: '#495057', 'font-family': 'inherit'});
+      val.textContent = v.value.toFixed(dec) + suffix;
+      svg.appendChild(val);
+    });
+  });
+
+  div.appendChild(svg);
+  container.appendChild(div);
 }
 
 // === Generic table renderer ===
@@ -1703,16 +1822,19 @@ function toCompactTS(dtLocal) {
 }
 
 function getFilteredResults() {
+  var sRe = tryRegex(document.getElementById('f-subject').value);
   var tRe = tryRegex(document.getElementById('f-treatment').value);
   var kRe = tryRegex(document.getElementById('f-task').value);
   var startVal = toCompactTS(document.getElementById('f-start').value);
   var endVal = toCompactTS(document.getElementById('f-end').value);
 
   // Mark invalid
+  document.getElementById('f-subject').classList.toggle('invalid', sRe === false);
   document.getElementById('f-treatment').classList.toggle('invalid', tRe === false);
   document.getElementById('f-task').classList.toggle('invalid', kRe === false);
 
   var filtered = DATA.results.filter(function(r) {
+    if (sRe && !sRe.test(r.subject || '')) return false;
     if (tRe && !tRe.test(r.treatment)) return false;
     if (kRe && !kRe.test(r.task)) return false;
     if (startVal && r.timestamp && r.timestamp < startVal) return false;
@@ -1720,6 +1842,7 @@ function getFilteredResults() {
     return true;
   });
   var filteredSeq = DATA.sequences.filter(function(r) {
+    if (sRe && !sRe.test(r.subject || '')) return false;
     if (tRe && !tRe.test(r.treatment)) return false;
     if (kRe && !kRe.test(r.sequence)) return false;
     if (startVal && r.timestamp && r.timestamp < startVal) return false;
@@ -1738,7 +1861,7 @@ function getFilteredResults() {
     (DATA.meta.since ? ' since ' + DATA.meta.since : '');
 
   // Mark all tabs dirty
-  var tabs = ['summary','matrix','efficiency','bdd','context','diagnostics','detail','sequences'];
+  var tabs = ['summary','matrix','efficiency','bdd','context','diagnostics','detail','quality','sequences'];
   for (var i = 0; i < tabs.length; i++) state.dirty[tabs[i]] = true;
   renderActiveTab();
 }
@@ -1773,6 +1896,7 @@ function renderActiveTab() {
     case 'context': renderContextTab(el, results); break;
     case 'diagnostics': renderDiagnosticsTab(el, results); break;
     case 'detail': renderDetailTab(el, results); break;
+    case 'quality': renderQualityTab(el, results); break;
     case 'sequences': renderSequencesTab(el, seqs); break;
   }
   state.dirty[tab] = false;
@@ -1783,12 +1907,13 @@ function renderSummaryTab(el, results, seqs) {
   // Summary by Treatment
   var h = document.createElement('h3'); h.textContent = 'Summary by Treatment'; el.appendChild(h);
   var byT = groupBy(results, function(r){return r.treatment});
-  var headers = ['Treatment','Runs','Pass%','Avg Blks','Skip%','Tamper%','Avg Tokens','Avg Turns','Avg Time','Avg Cost'];
-  var aligns = ['l','r','r','r','r','r','r','r','r','r'];
+  var headers = ['Treatment','Runs','Pass%','Avg Qual','Avg Blks','Skip%','Tamper%','Avg Tokens','Avg Turns','Avg Time','Avg Cost'];
+  var aligns = ['l','r','r','r','r','r','r','r','r','r','r'];
   var rows = [];
   sortedKeys(byT).forEach(function(t) {
     var runs = byT[t], n = runs.length;
     rows.push([t, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+      fmtFloat(avg(runs,function(r){return r._quality_score||0})),
       fmtFloat(avg(runs,function(r){return r.stop_blocks||0})),
       fmtPct(count(runs,function(r){return(r.regression_skipped||0)>0}),n),
       fmtPct(count(runs,function(r){return r.regression_tests_modified}),n),
@@ -1822,12 +1947,13 @@ function renderSummaryTab(el, results, seqs) {
   // Summary by Task
   h = document.createElement('h3'); h.textContent = 'Summary by Task'; el.appendChild(h);
   var byTask = groupBy(results, function(r){return r.task});
-  headers = ['Task','Runs','Pass%','Avg Tokens','Avg Turns','Avg Cost'];
-  aligns = ['l','r','r','r','r','r'];
+  headers = ['Task','Runs','Pass%','Avg Qual','Avg Tokens','Avg Turns','Avg Cost'];
+  aligns = ['l','r','r','r','r','r','r'];
   rows = [];
   sortedKeys(byTask).forEach(function(t) {
     var runs = byTask[t], n = runs.length;
     rows.push([t, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+      fmtFloat(avg(runs,function(r){return r._quality_score||0})),
       fmtTokens(Math.round(avg(runs,function(r){return r.tokens_total||0}))),
       fmtFloat(avg(runs,function(r){return r.api_turns||0})),
       fmtCost(avg(runs,function(r){return r.budget_used_usd||0}))]);
@@ -1837,8 +1963,8 @@ function renderSummaryTab(el, results, seqs) {
   // Tier Summary
   h = document.createElement('h3'); h.textContent = 'Outcomes by Treatment Tier'; el.appendChild(h);
   var byTier = groupBy(results, function(r){return r._tier||'none'});
-  headers = ['Tier','Treatments','Runs','Pass%','Tamper%','Avg Tokens','Avg Turns','Avg Cost'];
-  aligns = ['l','r','r','r','r','r','r','r'];
+  headers = ['Tier','Treatments','Runs','Pass%','Avg Qual','Tamper%','Avg Tokens','Avg Turns','Avg Cost'];
+  aligns = ['l','r','r','r','r','r','r','r','r'];
   rows = [];
   DATA.constants.TIER_ORDER.forEach(function(tk) {
     var runs = byTier[tk]; if (!runs||!runs.length) return;
@@ -1846,6 +1972,7 @@ function renderSummaryTab(el, results, seqs) {
     runs.forEach(function(r){tSet[r.treatment]=1});
     rows.push([DATA.constants.TIER_LABELS[tk]||tk, Object.keys(tSet).length, n,
       fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+      fmtFloat(avg(runs,function(r){return r._quality_score||0})),
       fmtPct(count(runs,function(r){return r.regression_tests_modified}),n),
       fmtTokens(Math.round(avg(runs,function(r){return r.tokens_total||0}))),
       fmtFloat(avg(runs,function(r){return r.api_turns||0})),
@@ -1859,8 +1986,8 @@ function renderSummaryTab(el, results, seqs) {
     var runs = byTask[t];
     return {task:t, runs:runs, passRate: count(runs,function(r){return r.acceptance_pass})/runs.length};
   }).sort(function(a,b){return a.passRate - b.passRate});
-  headers = ['Task','Runs','Pass%','Tamper%','Avg Tokens','Avg Cost','Best Treatment','Worst Treatment'];
-  aligns = ['l','r','r','r','r','r','l','l'];
+  headers = ['Task','Runs','Pass%','Avg Qual','Tamper%','Avg Tokens','Avg Cost','Best Treatment','Worst Treatment'];
+  aligns = ['l','r','r','r','r','r','r','l','l'];
   rows = [];
   tEntries.forEach(function(e) {
     var runs = e.runs, n = runs.length;
@@ -1871,6 +1998,7 @@ function renderSummaryTab(el, results, seqs) {
     var best = trEntries.reduce(function(a,b){return a.pct>=b.pct?a:b});
     var worst = trEntries.reduce(function(a,b){return a.pct<=b.pct?a:b});
     rows.push([e.task, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+      fmtFloat(avg(runs,function(r){return r._quality_score||0})),
       fmtPct(count(runs,function(r){return r.regression_tests_modified}),n),
       fmtTokens(Math.round(avg(runs,function(r){return r.tokens_total||0}))),
       fmtCost(avg(runs,function(r){return r.budget_used_usd||0})),
@@ -1988,6 +2116,22 @@ function renderBddTab(el, results) {
   });
   renderTable(el, headers, rows, aligns);
 
+  // Chart: Treatment Pass Rate & Quality
+  var chartData = [];
+  sortedKeys(byT).forEach(function(t) {
+    var runs = byT[t], n = runs.length;
+    var passRate = n > 0 ? count(runs, function(r){return r.acceptance_pass}) / n * 100 : 0;
+    var qual = avg(runs, function(r){return r._quality_score||0});
+    chartData.push({label: t, values: [
+      {value: passRate, color: '#0d6efd'},
+      {value: qual, color: '#198754'}
+    ]});
+  });
+  if (chartData.length > 0) {
+    renderGroupedBarChart(el, chartData, {suffix: '', maxValue: 100, decimals: 0,
+      legend: [{label: 'Pass %', color: '#0d6efd'}, {label: 'Avg Quality', color: '#198754'}]});
+  }
+
   // Engagement vs Outcomes
   h = document.createElement('h3'); h.textContent = 'BDD Engagement Level vs Outcomes'; el.appendChild(h);
   var byEng = groupBy(results, function(r){return r._engagement||'No BDD'});
@@ -2008,6 +2152,20 @@ function renderBddTab(el, results) {
     }
   });
   renderTable(el, headers, rows, aligns);
+
+  // Chart: Engagement Level Pass Rate
+  var engChartData = [];
+  var engAllLabels = engOrder.slice();
+  Object.keys(byEng).forEach(function(l) { if (engAllLabels.indexOf(l) === -1) engAllLabels.push(l); });
+  engAllLabels.forEach(function(label) {
+    var runs = byEng[label]; if (!runs || !runs.length) return;
+    var n = runs.length;
+    var passRate = count(runs, function(r){return r.acceptance_pass}) / n * 100;
+    engChartData.push({label: label + ' (' + n + ')', value: passRate});
+  });
+  if (engChartData.length > 1) {
+    renderBarChart(el, engChartData, {suffix: '%', maxValue: 100, colorFn: pctColor});
+  }
 
   // Hook Effectiveness
   var hookedRuns = results.filter(function(r){return(r.hook_begins||0)>0});
@@ -2052,6 +2210,24 @@ function renderBddTab(el, results) {
           fmtCost(avg(runs,function(r){return r.budget_used_usd||0}))]);
       });
       renderTable(el, headers, rows, aligns);
+
+      // Chart: Hook Variant Pass Rate & Injection Rate
+      var varChartData = [];
+      sortedKeys(byVar).forEach(function(v) {
+        var runs = byVar[v], n = runs.length;
+        var passRate = count(runs, function(r){return r.acceptance_pass}) / n * 100;
+        var tB = sum(runs, function(r){return r.hook_begins||0});
+        var tI = sum(runs, function(r){return r.hook_injections||0});
+        var injRate = tB > 0 ? tI / tB * 100 : 0;
+        varChartData.push({label: v + ' (' + n + ')', values: [
+          {value: passRate, color: '#0d6efd'},
+          {value: injRate, color: '#fd7e14'}
+        ]});
+      });
+      if (varChartData.length > 1) {
+        renderGroupedBarChart(el, varChartData, {suffix: '%', maxValue: 100, decimals: 0,
+          legend: [{label: 'Pass %', color: '#0d6efd'}, {label: 'Injection Rate', color: '#fd7e14'}]});
+      }
     }
   }
 
@@ -2097,6 +2273,25 @@ function renderBddTab(el, results) {
         nonUsers.length>0?fmtPct(count(nonUsers,function(r){return r.acceptance_pass}),nonUsers.length):'-']);
     });
     renderTable(el, headers, rows, aligns);
+
+    // Chart: MCP Tool Impact (users vs non-users pass rate)
+    var mcpChartData = [];
+    tools.forEach(function(tool) {
+      var usrs = results.filter(function(r){return(r[tool.field]||0)>0});
+      var nonUsrs = results.filter(function(r){return(r[tool.field]||0)===0});
+      if (usrs.length === 0) return;
+      var userPR = count(usrs, function(r){return r.acceptance_pass}) / usrs.length * 100;
+      var nonPR = nonUsrs.length > 0 ? count(nonUsrs, function(r){return r.acceptance_pass}) / nonUsrs.length * 100 : 0;
+      mcpChartData.push({label: tool.name, values: [
+        {value: userPR, color: '#0d6efd'},
+        {value: nonPR, color: '#adb5bd'}
+      ]});
+    });
+    if (mcpChartData.length > 0) {
+      var mh = document.createElement('h3'); mh.textContent = 'MCP Tool Impact on Pass Rate'; el.appendChild(mh);
+      renderGroupedBarChart(el, mcpChartData, {suffix: '%', maxValue: 100, decimals: 0,
+        legend: [{label: 'Users', color: '#0d6efd'}, {label: 'Non-users', color: '#adb5bd'}]});
+    }
   }
 
   // Agent Outcomes
@@ -2347,6 +2542,110 @@ function renderDetailTab(el, results) {
   renderTable(el, headers, rows, aligns);
 }
 
+// ============ TAB: Quality ============
+function renderQualityTab(el, results) {
+  // Filter to results with quality scores
+  var scored = results.filter(function(r) { return r._quality_score != null; });
+  if (!scored.length) {
+    el.textContent = 'No quality scores available. Quality scoring requires expected.json in task directories.';
+    return;
+  }
+
+  // --- Quality by Treatment ---
+  var h = document.createElement('h3'); h.textContent = 'Quality by Treatment'; el.appendChild(h);
+  var byT = groupBy(scored, function(r){return r.treatment});
+  var headers = ['Treatment','Runs','Avg Quality','Correctness','File Prec','File Recall','Conciseness','Integrity','Clean Code'];
+  var aligns = ['l','r','r','r','r','r','r','r','r'];
+  var rows = [];
+  sortedKeys(byT).forEach(function(t) {
+    var runs = byT[t], n = runs.length;
+    rows.push([t, n,
+      fmtFloat(avg(runs,function(r){return r._quality_score||0})),
+      fmtFloat(avg(runs,function(r){return r._correctness||0})),
+      fmtFloat(avg(runs,function(r){return r._file_precision||0})),
+      fmtFloat(avg(runs,function(r){return r._file_recall||0})),
+      fmtFloat(avg(runs,function(r){return r._conciseness||0})),
+      fmtFloat(avg(runs,function(r){return r._integrity||0})),
+      fmtFloat(avg(runs,function(r){return r._clean_code||0}))]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // --- Quality by Task ---
+  h = document.createElement('h3'); h.textContent = 'Quality by Task'; el.appendChild(h);
+  var byK = groupBy(scored, function(r){return r.task});
+  headers = ['Task','Runs','Avg Quality','Correctness','File Prec','File Recall','Conciseness'];
+  aligns = ['l','r','r','r','r','r','r'];
+  rows = [];
+  sortedKeys(byK).forEach(function(k) {
+    var runs = byK[k], n = runs.length;
+    rows.push([k, n,
+      fmtFloat(avg(runs,function(r){return r._quality_score||0})),
+      fmtFloat(avg(runs,function(r){return r._correctness||0})),
+      fmtFloat(avg(runs,function(r){return r._file_precision||0})),
+      fmtFloat(avg(runs,function(r){return r._file_recall||0})),
+      fmtFloat(avg(runs,function(r){return r._conciseness||0}))]);
+  });
+  renderTable(el, headers, rows, aligns);
+
+  // --- Quality by Tier ---
+  var TIERS = DATA.constants.TIER_ORDER || [];
+  var TIER_LABELS = DATA.constants.TIER_LABELS || {};
+  var byTier = groupBy(scored, function(r){return r._tier||'none'});
+  if (Object.keys(byTier).length > 1) {
+    h = document.createElement('h3'); h.textContent = 'Quality by Tier'; el.appendChild(h);
+    headers = ['Tier','Runs','Avg Quality','Pass%','File Precision','File Recall'];
+    aligns = ['l','r','r','r','r','r'];
+    rows = [];
+    TIERS.forEach(function(tier) {
+      var runs = byTier[tier];
+      if (!runs || !runs.length) return;
+      var n = runs.length;
+      rows.push([TIER_LABELS[tier]||tier, n,
+        fmtFloat(avg(runs,function(r){return r._quality_score||0})),
+        fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+        fmtFloat(avg(runs,function(r){return r._file_precision||0})),
+        fmtFloat(avg(runs,function(r){return r._file_recall||0}))]);
+    });
+    renderTable(el, headers, rows, aligns);
+  }
+
+  // --- Anti-pattern Frequency ---
+  var allAnti = {};
+  scored.forEach(function(r) {
+    var ap = r._antipatterns || {};
+    for (var k in ap) { allAnti[k] = (allAnti[k]||0) + ap[k]; }
+  });
+  if (Object.keys(allAnti).length > 0) {
+    h = document.createElement('h3'); h.textContent = 'Anti-pattern Frequency'; el.appendChild(h);
+    headers = ['Pattern','Total Occurrences','Runs Affected'];
+    aligns = ['l','r','r'];
+    rows = [];
+    for (var pat in allAnti) {
+      var affected = count(scored, function(r){ return (r._antipatterns||{})[pat] > 0; });
+      rows.push([pat, allAnti[pat], affected]);
+    }
+    renderTable(el, headers, rows, aligns);
+  }
+
+  // --- Per-Run Quality Detail ---
+  h = document.createElement('h3'); h.textContent = 'Per-Run Quality Detail (' + scored.length + ' scored runs)'; el.appendChild(h);
+  headers = ['Task','Treatment','Quality','Correct','F.Prec','F.Recall','Concise','Integrity','Clean','Unexpected Files'];
+  aligns = ['l','l','r','r','r','r','r','r','r','l'];
+  rows = [];
+  scored.forEach(function(r) {
+    rows.push([r.task, r.treatment,
+      fmtFloat(r._quality_score||0),
+      fmtFloat(r._correctness||0),
+      fmtFloat(r._file_precision||0),
+      fmtFloat(r._file_recall||0),
+      fmtFloat(r._conciseness||0),
+      fmtFloat(r._integrity||0),
+      fmtFloat(r._clean_code||0),
+      (r._unexpected_files||[]).join(', ')||'-']);
+  });
+  renderTable(el, headers, rows, aligns);
+}
+
 // ============ TAB 8: Sequences ============
 function renderSequencesTab(el, seqs) {
   if (!seqs.length) { el.textContent = 'No sequence results.'; return; }
@@ -2389,6 +2688,7 @@ function renderSequencesTab(el, seqs) {
   // Restore filters from localStorage
   var saved = {};
   try { saved = JSON.parse(localStorage.getItem('bdd-bench-filters') || '{}'); } catch(e) {}
+  if (saved.subject) document.getElementById('f-subject').value = saved.subject;
   if (saved.treatment) document.getElementById('f-treatment').value = saved.treatment;
   if (saved.task) document.getElementById('f-task').value = saved.task;
   if (saved.start) document.getElementById('f-start').value = saved.start;
@@ -2402,7 +2702,7 @@ function renderSequencesTab(el, seqs) {
 
   // Wire filter inputs with debounce
   var debounceTimer;
-  var filterEls = ['f-treatment','f-task','f-start','f-end'];
+  var filterEls = ['f-subject','f-treatment','f-task','f-start','f-end'];
   filterEls.forEach(function(id) {
     document.getElementById(id).addEventListener('input', function() {
       clearTimeout(debounceTimer);
@@ -2412,6 +2712,7 @@ function renderSequencesTab(el, seqs) {
 
   function saveFilters() {
     var obj = {
+      subject: document.getElementById('f-subject').value,
       treatment: document.getElementById('f-treatment').value,
       task: document.getElementById('f-task').value,
       start: document.getElementById('f-start').value,
@@ -2430,6 +2731,230 @@ function renderSequencesTab(el, seqs) {
 </script>
 </body>
 </html>"""
+
+
+# ============================================================
+# Quality Scoring
+# ============================================================
+
+def _parse_diff_files(diff_patch: str) -> list[str]:
+    """Extract list of touched files from a diff.patch."""
+    files = set()
+    for line in diff_patch.split("\n"):
+        if line.startswith("diff --git"):
+            # "diff --git a/foo/bar.py b/foo/bar.py"
+            parts = line.split()
+            if len(parts) >= 4:
+                files.add(parts[3].lstrip("b/"))
+        elif line.startswith("+++ b/"):
+            files.add(line[6:])
+    return sorted(files)
+
+
+def _parse_diff_lines(diff_patch: str) -> tuple[int, int]:
+    """Count real lines added/removed (excluding blank/comment-only)."""
+    added = 0
+    removed = 0
+    for line in diff_patch.split("\n"):
+        if line.startswith("+") and not line.startswith("+++"):
+            content = line[1:].strip()
+            if content and not content.startswith("#"):
+                added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            content = line[1:].strip()
+            if content and not content.startswith("#"):
+                removed += 1
+    return added, removed
+
+
+def _scan_antipatterns(diff_patch: str) -> dict[str, int]:
+    """Scan diff for anti-patterns in added lines."""
+    counts: dict[str, int] = defaultdict(int)
+    for line in diff_patch.split("\n"):
+        if line.startswith("+") and not line.startswith("+++"):
+            content = line[1:]
+            if re.search(r'\bTODO\b', content, re.IGNORECASE):
+                counts["TODO"] += 1
+            if re.search(r'\bFIXME\b', content, re.IGNORECASE):
+                counts["FIXME"] += 1
+            if re.search(r'\bprint\s*\(', content) and 'import' not in content:
+                counts["debug_print"] += 1
+            # Commented-out code (# followed by code-like content)
+            stripped = content.strip()
+            if stripped.startswith("#") and re.search(r'[=\(\)\[\]{}]', stripped[1:]):
+                counts["commented_code"] += 1
+    return dict(counts)
+
+
+def load_golden_ref(task_dir: Path) -> dict | None:
+    """Load expected.json golden reference from a task directory."""
+    expected_path = task_dir / "expected.json"
+    if not expected_path.exists():
+        return None
+    try:
+        with open(expected_path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _find_task_dir(bench_dir: Path, task_name: str, subject_name: str = "") -> Path | None:
+    """Find the task directory for a given task name."""
+    # Try tasks_2/ first (for adk_playground), then tasks/
+    for tasks_parent in ["tasks_2", "tasks"]:
+        candidate = bench_dir / tasks_parent / task_name
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def compute_quality_score(metrics: dict, golden_ref: dict | None,
+                          diff_patch: str) -> dict:
+    """Compute composite quality score 0-100 for a single run.
+
+    Returns dict with quality_score and sub-scores.
+    """
+    if not golden_ref:
+        return {"quality_score": None}
+
+    # --- Correctness (35%) ---
+    accept_total = metrics.get("acceptance_total", 0)
+    accept_passed = metrics.get("acceptance_passed", 0)
+    correctness = (accept_passed / accept_total * 100) if accept_total > 0 else 0
+
+    # --- File Precision (15%) ---
+    expected_files = set(golden_ref.get("expected_files", []))
+    optional_files = set(golden_ref.get("optional_files", []))
+    noise_files = set(golden_ref.get("noise_files", []))
+    touched_files = set(_parse_diff_files(diff_patch))
+
+    # Remove noise files from touched
+    real_touched = touched_files - noise_files
+    expected_touched = real_touched & (expected_files | optional_files)
+    unexpected_touched = real_touched - expected_files - optional_files
+
+    if len(real_touched) > 0:
+        file_precision = len(expected_touched) / len(real_touched) * 100
+    else:
+        file_precision = 0
+
+    # --- File Recall (10%) ---
+    if len(expected_files) > 0:
+        file_recall = len(real_touched & expected_files) / len(expected_files) * 100
+    else:
+        file_recall = 100
+
+    # --- Conciseness (15%) ---
+    lines_spec = golden_ref.get("expected_lines_added", {})
+    target = lines_spec.get("target", 30)
+    min_lines = lines_spec.get("min", 5)
+    max_lines = lines_spec.get("max", 100)
+    actual_added, _ = _parse_diff_lines(diff_patch)
+
+    if actual_added == 0:
+        conciseness = 0
+    elif min_lines <= actual_added <= max_lines:
+        # Score based on distance from target
+        if actual_added <= target:
+            conciseness = 100
+        else:
+            overshoot = (actual_added - target) / (max_lines - target)
+            conciseness = max(0, 100 - overshoot * 50)
+    elif actual_added < min_lines:
+        conciseness = actual_added / min_lines * 60  # partial credit
+    else:
+        # Over max
+        overshoot = (actual_added - max_lines) / max_lines
+        conciseness = max(0, 40 - overshoot * 40)
+
+    # --- Integrity (15%) ---
+    no_tamper = not metrics.get("regression_tests_modified", False)
+    no_regression = metrics.get("regression_pass", False)
+    integrity = 100 if (no_tamper and no_regression) else (50 if no_tamper else 0)
+
+    # --- Clean Code (10%) ---
+    antipatterns = _scan_antipatterns(diff_patch)
+    total_antipatterns = sum(antipatterns.values())
+    if total_antipatterns == 0:
+        clean_code = 100
+    elif total_antipatterns <= 2:
+        clean_code = 70
+    elif total_antipatterns <= 5:
+        clean_code = 40
+    else:
+        clean_code = 10
+
+    # --- Composite ---
+    composite = (
+        correctness * 0.35 +
+        file_precision * 0.15 +
+        file_recall * 0.10 +
+        conciseness * 0.15 +
+        integrity * 0.15 +
+        clean_code * 0.10
+    )
+
+    return {
+        "quality_score": round(composite, 1),
+        "correctness": round(correctness, 1),
+        "file_precision": round(file_precision, 1),
+        "file_recall": round(file_recall, 1),
+        "conciseness": round(conciseness, 1),
+        "integrity": round(integrity, 1),
+        "clean_code": round(clean_code, 1),
+        "files_touched": sorted(real_touched),
+        "expected_files_hit": sorted(real_touched & expected_files),
+        "unexpected_files": sorted(unexpected_touched),
+        "lines_added_real": actual_added,
+        "antipatterns": antipatterns,
+    }
+
+
+def enrich_quality(results: list[dict], bench_dir: Path) -> list[dict]:
+    """Add quality scores to each result dict (mutates in place).
+
+    Loads expected.json from task dirs and diff.patch from result dirs.
+    """
+    for r in results:
+        task = r.get("task", "")
+        subject = r.get("subject", "taskboard")
+
+        # Find task directory
+        task_dir = _find_task_dir(bench_dir, task, subject)
+        golden_ref = load_golden_ref(task_dir) if task_dir else None
+
+        # Find diff.patch in result directory
+        diff_patch = ""
+        # Try to find result dir from timestamp
+        ts = r.get("timestamp", "")
+        treatment = r.get("treatment", "")
+        # Search for matching result dir
+        results_dir = bench_dir / "results"
+        for pattern in [
+            f"{ts}-{subject}-{task}-{treatment}",
+            f"{ts}-{task}-{treatment}",  # old format
+        ]:
+            candidate = results_dir / pattern
+            diff_file = candidate / "diff.patch"
+            if diff_file.exists():
+                try:
+                    diff_patch = diff_file.read_text()
+                except OSError:
+                    pass
+                break
+
+        quality = compute_quality_score(r, golden_ref, diff_patch)
+        r["_quality_score"] = quality.get("quality_score")
+        r["_correctness"] = quality.get("correctness")
+        r["_file_precision"] = quality.get("file_precision")
+        r["_file_recall"] = quality.get("file_recall")
+        r["_conciseness"] = quality.get("conciseness")
+        r["_integrity"] = quality.get("integrity")
+        r["_clean_code"] = quality.get("clean_code")
+        r["_antipatterns"] = quality.get("antipatterns", {})
+        r["_unexpected_files"] = quality.get("unexpected_files", [])
+
+    return results
 
 
 # ============================================================
@@ -2539,6 +3064,9 @@ def main():
 
     # Enrich results with computed classification fields
     enrich_results(results)
+
+    # Enrich results with quality scores
+    enrich_quality(results, bench_dir)
 
     # Determine output mode: --markdown for legacy stdout, HTML by default
     do_markdown = opts["markdown"]

@@ -1,0 +1,1 @@
+Add tags/labels support to projects. Add a `tags: list[str]` field to the `Project` model (default empty list). Add a `GET /api/projects?tag=TAG` query parameter to filter projects by tag. Add a `PUT /api/projects/{project_id}/tags` endpoint that accepts `{"tags": ["tag1", "tag2"]}` to update a project's tags. Tags should be persisted in the project YAML.

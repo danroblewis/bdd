@@ -1,0 +1,56 @@
+[project]
+name = "adk-playground"
+version = "0.1.0"
+description = "ADK Playground - A web-based UI for building and testing Google ADK agents"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "python-multipart>=0.0.6",
+    "websockets>=12.0",
+    "google-adk>=1.19.0",  # 1.19.0+ required for SqliteSessionService
+    "litellm>=1.75.5,<2.0.0",  # Required for LiteLlm model support (matches google-adk extensions)
+    "numpy>=1.20.0",  # For vector operations
+    "docker>=7.0.0",  # For Docker sandbox (works even if Docker daemon not installed)
+    "psutil>=5.9.0",  # For system metrics (CPU, memory, disk)
+]
+
+[project.scripts]
+adk-playground = "adk_playground:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+gpu = [
+    "pynvml>=11.0.0",  # For NVIDIA GPU metrics
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Explicitly specify packages to avoid discovery issues
+packages = ["adk_playground", "adk_playground.frontend", "backend", "tracing_plugin", "mcp_servers"]
+py-modules = ["file_session_service", "file_memory_service"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"adk_playground" = ["frontend/dist/**/*"]
+"adk_playground.frontend" = ["dist/**/*"]
+
+[tool.black]
+line-length = 80
+target-version = ['py310', 'py311', 'py312']
+
+[tool.ruff]
+line-length = 80
+target-version = "py310"
+

@@ -10,9 +10,21 @@ cd "$WORKSPACE"
 
 BENCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BDD_SERVER="$(cd "$(dirname "$0")/../../.." && pwd)/bdd_server.py"
-VENV_PYTHON="$BENCH_ROOT/.venv/bin/python3"
+# --- Subject-aware paths ---
+SUBJECT_DIR="$BENCH_ROOT/${SUBJECT:-subject}"
+if [[ -f "$SUBJECT_DIR/subject.json" ]]; then
+  SUBJECT_VENV=$(python3 -c "import json; print(json.load(open('$SUBJECT_DIR/subject.json')).get('venv_python','.venv/bin/python3'))")
+  VENV_PYTHON="$BENCH_ROOT/$SUBJECT_VENV"
+else
+  VENV_PYTHON="$BENCH_ROOT/.venv/bin/python3"
+fi
 
-# --- catalog.json (same as full-bdd) ---
+# --- catalog.json (from subject dir or inline) ---
+if [[ -f "$SUBJECT_DIR/catalog.json" ]]; then
+  cp "$SUBJECT_DIR/catalog.json" catalog.json
+  echo "  Copied catalog.json from $SUBJECT_DIR"
+else
+# --- inline catalog.json for taskboard subject ---
 cat > catalog.json << 'CATALOG_EOF'
 {
   "version": 1,
@@ -188,8 +200,13 @@ cat > catalog.json << 'CATALOG_EOF'
   ]
 }
 CATALOG_EOF
+fi
 
-# --- bdd.json (KEY DIFFERENCE: coverage-json format with --cov-context=test) ---
+# --- bdd.json (from subject dir or inline) ---
+if [[ -f "$SUBJECT_DIR/bdd.json" ]]; then
+  cp "$SUBJECT_DIR/bdd.json" bdd.json
+  echo "  Copied bdd.json from $SUBJECT_DIR"
+else
 cat > bdd.json << EOF
 {
   "test_command": "$VENV_PYTHON -m pytest tests/ -v --tb=short --junitxml=.bdd/results.xml --cov=src/taskboard --cov-context=test --cov-report=json:.bdd/coverage.json",
@@ -199,6 +216,7 @@ cat > bdd.json << EOF
   "coverage_file": ".bdd/coverage.json"
 }
 EOF
+fi
 
 # --- .mcp.json (expose bdd_motivation since there are no hooks to inject it automatically) ---
 # Exclude only bdd_next and bdd_tree

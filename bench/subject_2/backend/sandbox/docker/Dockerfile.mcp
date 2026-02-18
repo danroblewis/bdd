@@ -1,0 +1,28 @@
+# Base container for MCP servers that use SSE transport
+# Stdio-based MCP servers run as subprocesses in the agent container
+
+FROM python:3.11-slim
+
+# Install common MCP dependencies
+RUN pip install --no-cache-dir \
+    mcp \
+    httpx \
+    aiohttp \
+    pyyaml
+
+# Enforce proxy for all network requests
+# The gateway hostname is resolved within the Docker network
+ENV HTTP_PROXY=http://gateway:8080
+ENV HTTPS_PROXY=http://gateway:8080
+ENV NO_PROXY=localhost,127.0.0.1,gateway,agent-runner
+
+# Disable SSL verification for the proxy
+ENV REQUESTS_CA_BUNDLE=""
+ENV SSL_CERT_FILE=""
+ENV NODE_TLS_REJECT_UNAUTHORIZED=0
+
+WORKDIR /app
+
+# Default command - should be overridden when running
+CMD ["python", "-m", "mcp"]
+

@@ -1,0 +1,48 @@
+# Agent project with tools for testing
+id: tool_test
+name: Tool Test Project
+description: A project with custom tools
+
+app:
+  id: app_tool
+  name: Tool App
+  root_agent_id: calculator_agent
+  session_service_uri: "memory://"
+  memory_service_uri: "memory://"
+  artifact_service_uri: "memory://"
+
+agents:
+  - type: LlmAgent
+    id: calculator_agent
+    name: calculator
+    description: An agent that can do math
+    instruction: |
+      You are a calculator agent. When asked to add numbers,
+      use the add_numbers tool. Report the result to the user.
+    tools:
+      - type: function
+        name: add_numbers
+        description: Adds two numbers together
+        module_path: tools.math.add_numbers
+    model:
+      provider: gemini
+      model_name: gemini-2.0-flash
+
+custom_tools:
+  - id: tool_add
+    name: add_numbers
+    description: Add two numbers together
+    module_path: tools.math
+    code: |
+      def add_numbers(a: int, b: int) -> int:
+          """Add two numbers together.
+          
+          Args:
+              a: First number
+              b: Second number
+              
+          Returns:
+              The sum of a and b
+          """
+          return a + b
+

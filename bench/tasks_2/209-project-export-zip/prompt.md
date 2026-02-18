@@ -1,0 +1,1 @@
+Add project export as ZIP. Add an `export_project_zip(project_id: str) -> bytes` method to `project_manager.py` that creates a ZIP archive containing the project YAML, any custom tool Python files, and any custom callback Python files. Add a `GET /api/projects/{project_id}/export` endpoint in main.py that returns the ZIP as a downloadable file.

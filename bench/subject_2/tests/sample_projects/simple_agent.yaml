@@ -1,0 +1,27 @@
+# Simple agent project for testing
+id: simple_test
+name: Simple Test Project
+description: A minimal project with one LLM agent
+
+app:
+  id: app_simple
+  name: Simple App
+  root_agent_id: greeter_agent
+  session_service_uri: "memory://"
+  memory_service_uri: "memory://"
+  artifact_service_uri: "memory://"
+
+agents:
+  - type: LlmAgent
+    id: greeter_agent
+    name: greeter
+    description: A simple greeting agent
+    instruction: |
+      You are a friendly greeter. When someone says hello, respond with:
+      "Hello! Nice to meet you!"
+      
+      Keep your responses short and friendly.
+    model:
+      provider: gemini
+      model_name: gemini-2.0-flash
+

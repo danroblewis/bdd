@@ -1,0 +1,8 @@
+{
+  "name": "adk_playground",
+  "subject_dir": "subject_2",
+  "tasks_dir": "tasks_2",
+  "regression_test_file": "tests/",
+  "regression_baseline": 81,
+  "venv_python": ".venv_2/bin/python3"
+}

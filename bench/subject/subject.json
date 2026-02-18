@@ -1,0 +1,8 @@
+{
+  "name": "taskboard",
+  "subject_dir": "subject",
+  "tasks_dir": "tasks",
+  "regression_test_file": "tests/test_taskboard.py",
+  "regression_baseline": 22,
+  "venv_python": ".venv/bin/python3"
+}

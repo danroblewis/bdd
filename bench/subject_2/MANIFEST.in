@@ -1,0 +1,19 @@
+include README.md
+include LICENSE
+include pyproject.toml
+include setup.sh
+include __main__.py
+include adk_playground.py
+recursive-include backend *.py
+recursive-include tracing_plugin *.py
+recursive-include mcp_servers *.py
+include file_session_service.py
+include file_memory_service.py
+# Include built frontend for production mode
+recursive-include frontend/dist *
+# Include adk_playground/frontend/dist (force include even if gitignored)
+recursive-include adk_playground/frontend/dist *
+# Also include if files are directly in adk_playground/frontend (fallback)
+recursive-include adk_playground/frontend *.html *.js *.css *.svg
+recursive-include adk_playground/frontend/assets *
+
