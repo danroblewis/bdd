@@ -611,6 +611,10 @@ if [[ -d "$WORKSPACE/.bdd" ]]; then
   done
 fi
 
+# --- Archive workspace ---
+echo "Archiving workspace..."
+tar czf "$RESULT_DIR/workspace.tar.gz" -C "$(dirname "$WORKSPACE")" "$(basename "$WORKSPACE")"
+
 # Cleanup workspace
 rm -rf "$WORKSPACE"
 

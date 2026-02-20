@@ -556,6 +556,10 @@ if [[ -d "$WORKSPACE/.planning" ]]; then
   cp -r "$WORKSPACE/.planning" "$RESULT_DIR/planning-artifacts"
 fi
 
+# --- Step 8d: Archive workspace ---
+echo "Archiving workspace..."
+tar czf "$RESULT_DIR/workspace.tar.gz" -C "$(dirname "$WORKSPACE")" "$(basename "$WORKSPACE")"
+
 # Cleanup workspace
 rm -rf "$WORKSPACE"
 
