@@ -503,12 +503,14 @@ def print_engagement_table(results: list[dict]):
     print()
     print("### BDD Engagement by Treatment")
     print()
-    headers = ["Treatment", "Runs", "MCP Calls", "bdd_test", "Hooks", "Injected", "Failed", "Uniq Facets", "Edits"]
-    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r"]
+    headers = ["Treatment", "Runs", "Pass%", "Avg Quality", "MCP Calls", "bdd_test", "Hooks", "Injected", "Failed", "Uniq Facets", "Edits"]
+    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r", "r", "r"]
     rows = []
     for treatment in sorted(by_treatment.keys()):
         runs = by_treatment[treatment]
         n = len(runs)
+        pass_rate = sum(1 for r in runs if r.get("acceptance_pass")) / n * 100
+        avg_quality = sum(r.get("_quality_score", 0) or 0 for r in runs) / n
         avg_mcp = sum(r.get("mcp_tool_calls", 0) for r in runs) / n
         avg_test = sum(r.get("bdd_test_calls", 0) for r in runs) / n
         avg_hooks = sum(r.get("hook_begins", 0) for r in runs) / n
@@ -520,6 +522,8 @@ def print_engagement_table(results: list[dict]):
         rows.append([
             treatment,
             str(n),
+            f"{pass_rate:.0f}%",
+            f"{avg_quality:.1f}",
             f"{avg_mcp:.1f}",
             f"{avg_test:.1f}",
             f"{avg_hooks:.1f}",
@@ -1728,6 +1732,107 @@ function renderGroupedBarChart(container, data, opts) {
   container.appendChild(div);
 }
 
+function renderScatterPlot(container, data, opts) {
+  // data: [{x, y, label?, color?}]
+  // opts: {xLabel, yLabel, xSuffix, ySuffix, xMax, yMax, width, height, title, colorFn}
+  opts = opts || {};
+  if (!data.length) return;
+  var W = opts.width || 560, H = opts.height || 340;
+  var pad = {top: 30, right: 20, bottom: 45, left: 55};
+  var cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom;
+  var xSuf = opts.xSuffix || '', ySuf = opts.ySuffix || '';
+  var xMax = opts.xMax != null ? opts.xMax : Math.max.apply(null, data.map(function(d){return d.x})) || 1;
+  var yMax = opts.yMax != null ? opts.yMax : Math.max.apply(null, data.map(function(d){return d.y})) || 1;
+  // Add 10% headroom
+  if (opts.xMax == null) xMax = xMax * 1.1 || 1;
+  if (opts.yMax == null) yMax = yMax * 1.1 || 1;
+
+  var div = document.createElement('div'); div.className = 'chart-wrap';
+  var svg = svgEl('svg', {width: W, viewBox: '0 0 ' + W + ' ' + H});
+  svg.style.maxWidth = W + 'px';
+
+  // Grid lines
+  for (var gi = 0; gi <= 4; gi++) {
+    var gy = pad.top + cH - (gi / 4) * cH;
+    svg.appendChild(svgEl('line', {x1: pad.left, y1: gy, x2: pad.left + cW, y2: gy,
+      stroke: '#e9ecef', 'stroke-width': 1}));
+    var yt = svgEl('text', {x: pad.left - 8, y: gy + 4, 'text-anchor': 'end',
+      'font-size': '10', fill: '#868e96', 'font-family': 'inherit'});
+    yt.textContent = (yMax * gi / 4).toFixed(ySuf === '%' ? 0 : 1) + ySuf;
+    svg.appendChild(yt);
+  }
+  for (var gj = 0; gj <= 4; gj++) {
+    var gx = pad.left + (gj / 4) * cW;
+    svg.appendChild(svgEl('line', {x1: gx, y1: pad.top, x2: gx, y2: pad.top + cH,
+      stroke: '#e9ecef', 'stroke-width': 1}));
+    var xt = svgEl('text', {x: gx, y: pad.top + cH + 16, 'text-anchor': 'middle',
+      'font-size': '10', fill: '#868e96', 'font-family': 'inherit'});
+    xt.textContent = (xMax * gj / 4).toFixed(xSuf === '%' ? 0 : 1) + xSuf;
+    svg.appendChild(xt);
+  }
+
+  // Axes
+  svg.appendChild(svgEl('line', {x1: pad.left, y1: pad.top, x2: pad.left, y2: pad.top + cH,
+    stroke: '#adb5bd', 'stroke-width': 1}));
+  svg.appendChild(svgEl('line', {x1: pad.left, y1: pad.top + cH, x2: pad.left + cW, y2: pad.top + cH,
+    stroke: '#adb5bd', 'stroke-width': 1}));
+
+  // Axis labels
+  if (opts.xLabel) {
+    var xl = svgEl('text', {x: pad.left + cW / 2, y: H - 4, 'text-anchor': 'middle',
+      'font-size': '11', fill: '#495057', 'font-family': 'inherit'});
+    xl.textContent = opts.xLabel;
+    svg.appendChild(xl);
+  }
+  if (opts.yLabel) {
+    var yl = svgEl('text', {x: 14, y: pad.top + cH / 2, 'text-anchor': 'middle',
+      'font-size': '11', fill: '#495057', 'font-family': 'inherit',
+      transform: 'rotate(-90,' + 14 + ',' + (pad.top + cH / 2) + ')'});
+    yl.textContent = opts.yLabel;
+    svg.appendChild(yl);
+  }
+
+  // Trend line (linear regression)
+  if (data.length >= 3) {
+    var n = data.length;
+    var sx = 0, sy = 0, sxy = 0, sx2 = 0;
+    data.forEach(function(d) { sx += d.x; sy += d.y; sxy += d.x * d.y; sx2 += d.x * d.x; });
+    var denom = n * sx2 - sx * sx;
+    if (Math.abs(denom) > 0.001) {
+      var slope = (n * sxy - sx * sy) / denom;
+      var intercept = (sy - slope * sx) / n;
+      var x0 = 0, x1 = xMax;
+      var ty0 = intercept, ty1 = slope * xMax + intercept;
+      // Clamp to chart bounds
+      ty0 = Math.max(0, Math.min(yMax, ty0));
+      ty1 = Math.max(0, Math.min(yMax, ty1));
+      var lx0 = pad.left + (x0 / xMax) * cW;
+      var ly0 = pad.top + cH - (ty0 / yMax) * cH;
+      var lx1 = pad.left + (x1 / xMax) * cW;
+      var ly1 = pad.top + cH - (ty1 / yMax) * cH;
+      svg.appendChild(svgEl('line', {x1: lx0, y1: ly0, x2: lx1, y2: ly1,
+        stroke: '#dee2e6', 'stroke-width': 1.5, 'stroke-dasharray': '6,4'}));
+    }
+  }
+
+  // Points
+  data.forEach(function(d) {
+    var cx = pad.left + (Math.min(d.x, xMax) / xMax) * cW;
+    var cy = pad.top + cH - (Math.min(d.y, yMax) / yMax) * cH;
+    var color = d.color || (opts.colorFn ? opts.colorFn(d.y) : '#0d6efd');
+    svg.appendChild(svgEl('circle', {cx: cx, cy: cy, r: 5, fill: color, opacity: 0.75,
+      stroke: '#fff', 'stroke-width': 1.5}));
+    if (d.label) {
+      var lt = svgEl('text', {x: cx + 7, y: cy + 3, 'font-size': '9', fill: '#868e96', 'font-family': 'inherit'});
+      lt.textContent = d.label.length > 15 ? d.label.substring(0, 14) + '\u2026' : d.label;
+      svg.appendChild(lt);
+    }
+  });
+
+  div.appendChild(svg);
+  container.appendChild(div);
+}
+
 // === Generic table renderer ===
 function renderTable(container, headers, rows, aligns, opts) {
   opts = opts || {};
@@ -2101,12 +2206,14 @@ function renderBddTab(el, results) {
   // Engagement by Treatment
   var h = document.createElement('h3'); h.textContent = 'BDD Engagement by Treatment'; el.appendChild(h);
   var byT = groupBy(results, function(r){return r.treatment});
-  var headers = ['Treatment','Runs','MCP Calls','bdd_test','Hooks','Injected','Failed','Uniq Facets','Edits'];
-  var aligns = ['l','r','r','r','r','r','r','r','r'];
+  var headers = ['Treatment','Runs','Pass%','Avg Quality','MCP Calls','bdd_test','Hooks','Injected','Failed','Uniq Facets','Edits'];
+  var aligns = ['l','r','r','r','r','r','r','r','r','r','r'];
   var rows = [];
   sortedKeys(byT).forEach(function(t) {
     var runs = byT[t], n = runs.length;
-    rows.push([t, n, fmtFloat(avg(runs,function(r){return r.mcp_tool_calls||0})),
+    rows.push([t, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+      fmtFloat(avg(runs,function(r){return r._quality_score||0})),
+      fmtFloat(avg(runs,function(r){return r.mcp_tool_calls||0})),
       fmtFloat(avg(runs,function(r){return r.bdd_test_calls||0})),
       fmtFloat(avg(runs,function(r){return r.hook_begins||0})),
       fmtFloat(avg(runs,function(r){return r.hook_injections||0})),
@@ -2315,6 +2422,161 @@ function renderBddTab(el, results) {
     }
     renderTable(el, headers, rows, aligns);
   }
+
+  // =================================================================
+  // BDD Feature Correlation Scatter Plots
+  // =================================================================
+  h = document.createElement('h3'); h.textContent = 'BDD Features vs Pass Rate (per treatment)'; el.appendChild(h);
+  p = document.createElement('p'); p.className = 'note';
+  p.textContent = 'Each dot is a treatment. X-axis = average BDD feature usage, Y-axis = pass rate or quality. Dashed line = trend.';
+  el.appendChild(p);
+
+  // Aggregate per-treatment stats for scatter data
+  var byTreat = groupBy(results, function(r){return r.treatment});
+  var treatStats = [];
+  sortedKeys(byTreat).forEach(function(t) {
+    var runs = byTreat[t], n = runs.length;
+    treatStats.push({
+      label: t,
+      passRate: count(runs, function(r){return r.acceptance_pass}) / n * 100,
+      quality: avg(runs, function(r){return r._quality_score||0}),
+      mcpCalls: avg(runs, function(r){return r.mcp_tool_calls||0}),
+      bddTest: avg(runs, function(r){return r.bdd_test_calls||0}),
+      hookInj: avg(runs, function(r){return r.hook_injections||0}),
+      uniqFacets: avg(runs, function(r){return r.hook_unique_facets||0}),
+      contextVol: avg(runs, function(r){return r._context_volume||0}),
+      editEntries: avg(runs, function(r){return r.edit_log_entries||0})
+    });
+  });
+  // Compute total BDD feature usage per treatment
+  treatStats.forEach(function(s) {
+    s.totalBdd = s.mcpCalls + s.bddTest + s.hookInj + s.uniqFacets + s.editEntries;
+  });
+
+  // --- Summary: Total BDD Usage vs Pass Rate & Quality ---
+  h = document.createElement('h3'); h.textContent = 'Total BDD Usage vs Outcomes'; el.appendChild(h);
+  p = document.createElement('p'); p.className = 'note';
+  p.textContent = 'Total BDD = avg MCP calls + bdd_test calls + hook injections + unique facets + edit log entries per treatment.';
+  el.appendChild(p);
+
+  var summaryGrid = document.createElement('div');
+  summaryGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:16px;margin:12px 0';
+
+  // Total BDD vs Pass Rate
+  var totalPassPts = treatStats.map(function(s) {
+    return {x: s.totalBdd, y: s.passRate, label: s.label, color: pctColor(s.passRate)};
+  });
+  var wp = document.createElement('div');
+  renderScatterPlot(wp, totalPassPts, {
+    xLabel: 'Total BDD Usage (avg)', yLabel: 'Pass Rate',
+    ySuffix: '%', yMax: 100, width: 420, height: 280,
+    colorFn: pctColor
+  });
+  summaryGrid.appendChild(wp);
+
+  // Total BDD vs Quality
+  var hasQualSummary = treatStats.some(function(s){return s.quality > 0});
+  if (hasQualSummary) {
+    var totalQualPts = treatStats.map(function(s) {
+      return {x: s.totalBdd, y: s.quality, label: s.label, color: '#198754'};
+    });
+    var wqs = document.createElement('div');
+    renderScatterPlot(wqs, totalQualPts, {
+      xLabel: 'Total BDD Usage (avg)', yLabel: 'Avg Quality',
+      yMax: 100, width: 420, height: 280
+    });
+    summaryGrid.appendChild(wqs);
+  }
+  el.appendChild(summaryGrid);
+
+  var bddFeatures = [
+    {key: 'mcpCalls', label: 'Avg MCP Calls'},
+    {key: 'bddTest', label: 'Avg bdd_test() Calls'},
+    {key: 'hookInj', label: 'Avg Hook Injections'},
+    {key: 'uniqFacets', label: 'Avg Unique Facets'},
+    {key: 'contextVol', label: 'Avg Context Volume'},
+    {key: 'editEntries', label: 'Avg Edit Log Entries'}
+  ];
+
+  // --- Pass Rate scatter plots ---
+  var scatterGrid = document.createElement('div');
+  scatterGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:16px;margin:12px 0';
+  bddFeatures.forEach(function(feat) {
+    var pts = treatStats.map(function(s) {
+      return {x: s[feat.key], y: s.passRate, label: s.label, color: pctColor(s.passRate)};
+    });
+    // Skip if all x values are 0
+    if (pts.every(function(p){return p.x === 0})) return;
+    var wrap = document.createElement('div');
+    renderScatterPlot(wrap, pts, {
+      xLabel: feat.label, yLabel: 'Pass Rate',
+      ySuffix: '%', yMax: 100, width: 420, height: 280,
+      colorFn: pctColor
+    });
+    scatterGrid.appendChild(wrap);
+  });
+  el.appendChild(scatterGrid);
+
+  // --- Quality scatter plots ---
+  var hasQuality = treatStats.some(function(s){return s.quality > 0});
+  if (hasQuality) {
+    h = document.createElement('h3'); h.textContent = 'BDD Features vs Code Quality (per treatment)'; el.appendChild(h);
+
+    var qualGrid = document.createElement('div');
+    qualGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:16px;margin:12px 0';
+    bddFeatures.forEach(function(feat) {
+      var pts = treatStats.map(function(s) {
+        return {x: s[feat.key], y: s.quality, label: s.label, color: '#198754'};
+      });
+      if (pts.every(function(p){return p.x === 0})) return;
+      var wrap = document.createElement('div');
+      renderScatterPlot(wrap, pts, {
+        xLabel: feat.label, yLabel: 'Avg Quality',
+        yMax: 100, width: 420, height: 280
+      });
+      qualGrid.appendChild(wrap);
+    });
+    el.appendChild(qualGrid);
+  }
+
+  // --- Per-run scatter: context volume vs outcome ---
+  h = document.createElement('h3'); h.textContent = 'Per-Run: Context Volume vs Outcome'; el.appendChild(h);
+  p = document.createElement('p'); p.className = 'note';
+  p.textContent = 'Each dot is a single run. Color = pass (green) / fail (red).';
+  el.appendChild(p);
+
+  var perRunGrid = document.createElement('div');
+  perRunGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:16px;margin:12px 0';
+
+  // Context volume vs quality (per run)
+  var runPtsQual = results.filter(function(r){return r._quality_score != null}).map(function(r) {
+    return {x: r._context_volume||0, y: r._quality_score||0,
+      label: '', color: r.acceptance_pass ? '#198754' : '#dc3545'};
+  });
+  if (runPtsQual.length > 0) {
+    var wq = document.createElement('div');
+    renderScatterPlot(wq, runPtsQual, {
+      xLabel: 'Context Volume', yLabel: 'Quality Score',
+      yMax: 100, width: 420, height: 280
+    });
+    perRunGrid.appendChild(wq);
+  }
+
+  // MCP calls vs quality (per run)
+  var runPtsMcp = results.filter(function(r){return r._quality_score != null}).map(function(r) {
+    return {x: r.mcp_tool_calls||0, y: r._quality_score||0,
+      label: '', color: r.acceptance_pass ? '#198754' : '#dc3545'};
+  });
+  if (runPtsMcp.length > 0) {
+    var wm = document.createElement('div');
+    renderScatterPlot(wm, runPtsMcp, {
+      xLabel: 'MCP Tool Calls', yLabel: 'Quality Score',
+      yMax: 100, width: 420, height: 280
+    });
+    perRunGrid.appendChild(wm);
+  }
+
+  el.appendChild(perRunGrid);
 }
 
 // ============ TAB 5: Context ============

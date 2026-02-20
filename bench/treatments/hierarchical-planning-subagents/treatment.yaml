@@ -1,0 +1,5 @@
+name: "hierarchical-planning-subagents"
+description: "Single planning claude run with 3 sequential sub-agents (Expectations→Goals→Facets), then clean-context implementation"
+claude_md: "CLAUDE.md"
+context_files: []
+setup_script: "setup.sh"

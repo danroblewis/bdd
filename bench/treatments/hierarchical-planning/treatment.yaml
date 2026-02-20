@@ -1,0 +1,5 @@
+name: "hierarchical-planning"
+description: "3-phase hierarchical planning (Expectations→Goals→Facets) via separate claude invocations, then clean-context implementation"
+claude_md: "CLAUDE.md"
+context_files: []
+setup_script: "setup.sh"

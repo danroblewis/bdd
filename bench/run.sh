@@ -154,13 +154,6 @@ if grep -q "per_task_context:" "$TREATMENT_DIR/treatment.yaml" 2>/dev/null; then
   fi
 fi
 
-# Run setup script if specified
-SETUP_SCRIPT="$(_yaml_val setup_script)"
-if [[ -n "$SETUP_SCRIPT" && -f "$TREATMENT_DIR/$SETUP_SCRIPT" ]]; then
-  echo "  Running setup script: $SETUP_SCRIPT"
-  bash "$TREATMENT_DIR/$SETUP_SCRIPT"
-fi
-
 # --- Step 3: Build prompt ---
 PROMPT=""
 if [[ -n "$PRE_PROMPT" ]]; then
@@ -171,6 +164,14 @@ PROMPT="${PROMPT}$(cat "$TASK_DIR/prompt.md")"
 # Write prompt to file for reference
 echo -e "$PROMPT" > "$WORKSPACE/prompt.txt"
 cp "$WORKSPACE/prompt.txt" "$RESULT_DIR/prompt.txt"
+
+# Run setup script if specified
+export TASK_DIR
+SETUP_SCRIPT="$(_yaml_val setup_script)"
+if [[ -n "$SETUP_SCRIPT" && -f "$TREATMENT_DIR/$SETUP_SCRIPT" ]]; then
+  echo "  Running setup script: $SETUP_SCRIPT"
+  bash "$TREATMENT_DIR/$SETUP_SCRIPT"
+fi
 
 # --- Step 4: Run claude ---
 echo ""
@@ -548,6 +549,11 @@ if [[ -d "$WORKSPACE/.bdd" ]]; then
   for f in hook.log edit_log.json stop-blocks.log; do
     [[ -f "$WORKSPACE/.bdd/$f" ]] && cp "$WORKSPACE/.bdd/$f" "$RESULT_DIR/bdd-artifacts/"
   done
+fi
+
+# --- Step 8c: Preserve planning artifacts (hierarchical-planning treatment) ---
+if [[ -d "$WORKSPACE/.planning" ]]; then
+  cp -r "$WORKSPACE/.planning" "$RESULT_DIR/planning-artifacts"
 fi
 
 # Cleanup workspace
