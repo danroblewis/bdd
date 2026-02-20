@@ -270,6 +270,26 @@ def fmt_pct(n: int, total: int) -> str:
     return f"{n / total * 100:.0f}%"
 
 
+def _baseline_pass_rate(results: list[dict]) -> float | None:
+    """Get baseline treatment pass rate, or None if no baseline runs exist."""
+    bl_runs = [r for r in results if r.get("treatment") == "baseline"]
+    if not bl_runs:
+        return None
+    return sum(1 for r in bl_runs if r.get("acceptance_pass")) / len(bl_runs) * 100
+
+
+def fmt_pass_delta(rate: float, baseline: float | None) -> str:
+    """Format pass rate delta vs baseline. Returns e.g. '+22pp' or '-5pp'."""
+    if baseline is None:
+        return "-"
+    delta = rate - baseline
+    if delta > 0:
+        return f"+{delta:.0f}pp"
+    elif delta < 0:
+        return f"{delta:.0f}pp"
+    return "0pp"
+
+
 def md_table(headers: list[str], rows: list[list[str]], aligns: list[str] | None = None):
     """Print a markdown table. aligns: 'l', 'r', or 'c' per column."""
     if not aligns:
@@ -356,8 +376,9 @@ def print_summary_table(results: list[dict]):
     print()
     print("### Summary by Treatment")
     print()
-    headers = ["Treatment", "Runs", "Pass%", "Avg Blks", "Skip%", "Tamper%", "Avg Tokens", "Avg Turns", "Avg Time", "Avg Cost"]
-    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r", "r"]
+    bl_rate = _baseline_pass_rate(results)
+    headers = ["Treatment", "Runs", "Pass%", "vs BL", "Avg Blks", "Skip%", "Tamper%", "Avg Tokens", "Avg Turns", "Avg Time", "Avg Cost"]
+    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r", "r", "r"]
     rows = []
     for treatment in sorted(by_treatment.keys()):
         runs = by_treatment[treatment]
@@ -375,6 +396,7 @@ def print_summary_table(results: list[dict]):
             treatment,
             str(n),
             f"{pass_rate:.0f}%",
+            fmt_pass_delta(pass_rate, bl_rate),
             f"{avg_blks:.1f}",
             f"{skip_pct:.0f}%",
             f"{tamper_pct:.0f}%",
@@ -503,8 +525,9 @@ def print_engagement_table(results: list[dict]):
     print()
     print("### BDD Engagement by Treatment")
     print()
-    headers = ["Treatment", "Runs", "Pass%", "Avg Quality", "MCP Calls", "bdd_test", "Hooks", "Injected", "Failed", "Uniq Facets", "Edits"]
-    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r", "r", "r"]
+    bl_rate = _baseline_pass_rate(results)
+    headers = ["Treatment", "Runs", "Pass%", "vs BL", "Avg Quality", "MCP Calls", "bdd_test", "Hooks", "Injected", "Failed", "Uniq Facets", "Edits"]
+    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r", "r", "r", "r"]
     rows = []
     for treatment in sorted(by_treatment.keys()):
         runs = by_treatment[treatment]
@@ -523,6 +546,7 @@ def print_engagement_table(results: list[dict]):
             treatment,
             str(n),
             f"{pass_rate:.0f}%",
+            fmt_pass_delta(pass_rate, bl_rate),
             f"{avg_quality:.1f}",
             f"{avg_mcp:.1f}",
             f"{avg_test:.1f}",
@@ -782,12 +806,13 @@ def print_hook_effectiveness(results: list[dict]):
     print()
     print("Runs with hooks only. Injection rate = injections / hook invocations.")
     print()
+    bl_rate = _baseline_pass_rate(results)
     headers = [
-        "Treatment", "Runs", "Pass%",
+        "Treatment", "Runs", "Pass%", "vs BL",
         "Avg Begins", "Avg Inj", "Avg Skip", "Inj Rate",
         "Avg Facets", "Avg Fail",
     ]
-    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r"]
+    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r", "r"]
 
     by_treatment = defaultdict(list)
     for r in hooked_runs:
@@ -814,6 +839,7 @@ def print_hook_effectiveness(results: list[dict]):
             treatment,
             str(n),
             f"{pass_rate:.0f}%",
+            fmt_pass_delta(pass_rate, bl_rate),
             f"{avg_begins:.1f}",
             f"{avg_inj:.1f}",
             f"{avg_skip:.1f}",
@@ -835,11 +861,12 @@ def print_mcp_tool_patterns(results: list[dict]):
     print()
     print("Runs with MCP tool calls only.")
     print()
+    bl_rate = _baseline_pass_rate(results)
     headers = [
-        "Treatment", "Runs", "Pass%",
+        "Treatment", "Runs", "Pass%", "vs BL",
         "bdd_test", "bdd_motiv", "bdd_locate", "bdd_status", "Total MCP",
     ]
-    aligns = ["l", "r", "r", "r", "r", "r", "r", "r"]
+    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r"]
 
     by_treatment = defaultdict(list)
     for r in mcp_runs:
@@ -860,6 +887,7 @@ def print_mcp_tool_patterns(results: list[dict]):
             treatment,
             str(n),
             f"{pass_rate:.0f}%",
+            fmt_pass_delta(pass_rate, bl_rate),
             f"{avg_test:.1f}",
             f"{avg_motiv:.1f}",
             f"{avg_locate:.1f}",
@@ -921,8 +949,9 @@ def print_hook_variant_comparison(results: list[dict]):
     print()
     print("Comparing different hook context injection strategies.")
     print()
-    headers = ["Variant", "Runs", "Pass%", "Inj Rate", "Avg Facets", "Avg Tokens", "Avg Cost"]
-    aligns = ["l", "r", "r", "r", "r", "r", "r"]
+    bl_rate = _baseline_pass_rate(results)
+    headers = ["Variant", "Runs", "Pass%", "vs BL", "Inj Rate", "Avg Facets", "Avg Tokens", "Avg Cost"]
+    aligns = ["l", "r", "r", "r", "r", "r", "r", "r"]
     rows = []
     for variant in sorted(by_variant.keys()):
         runs = by_variant[variant]
@@ -939,6 +968,7 @@ def print_hook_variant_comparison(results: list[dict]):
             variant,
             str(n),
             f"{pass_rate:.0f}%",
+            fmt_pass_delta(pass_rate, bl_rate),
             inj_rate,
             f"{avg_facets:.1f}",
             fmt_tokens(int(avg_tokens)),
@@ -959,8 +989,9 @@ def print_agent_outcomes(results: list[dict]):
     print("### Agent-Based Treatment Outcomes")
     print()
 
-    headers = ["Category", "Runs", "Pass%", "Tamper%", "Avg Tokens", "Avg Turns", "Avg Cost"]
-    aligns = ["l", "r", "r", "r", "r", "r", "r"]
+    bl_rate = _baseline_pass_rate(results)
+    headers = ["Category", "Runs", "Pass%", "vs BL", "Tamper%", "Avg Tokens", "Avg Turns", "Avg Cost"]
+    aligns = ["l", "r", "r", "r", "r", "r", "r", "r"]
     rows = []
 
     # Agent runs by treatment
@@ -971,15 +1002,18 @@ def print_agent_outcomes(results: list[dict]):
     for treatment in sorted(by_treatment.keys()):
         runs = by_treatment[treatment]
         n, pass_pct, avg_tok, avg_cost, avg_turns, tamper_pct = _bucket_stats(runs)
-        rows.append([f"  {treatment}", str(n), pass_pct, tamper_pct, avg_tok, avg_turns, avg_cost])
+        pr = sum(1 for r in runs if r.get("acceptance_pass")) / len(runs) * 100
+        rows.append([f"  {treatment}", str(n), pass_pct, fmt_pass_delta(pr, bl_rate), tamper_pct, avg_tok, avg_turns, avg_cost])
 
     # Totals
     n, pass_pct, avg_tok, avg_cost, avg_turns, tamper_pct = _bucket_stats(agent_runs)
-    rows.append(["**All agents**", str(n), pass_pct, tamper_pct, avg_tok, avg_turns, avg_cost])
+    pr = sum(1 for r in agent_runs if r.get("acceptance_pass")) / len(agent_runs) * 100
+    rows.append(["**All agents**", str(n), pass_pct, fmt_pass_delta(pr, bl_rate), tamper_pct, avg_tok, avg_turns, avg_cost])
 
     if non_agent_runs:
         n, pass_pct, avg_tok, avg_cost, avg_turns, tamper_pct = _bucket_stats(non_agent_runs)
-        rows.append(["**Non-agent**", str(n), pass_pct, tamper_pct, avg_tok, avg_turns, avg_cost])
+        pr = sum(1 for r in non_agent_runs if r.get("acceptance_pass")) / len(non_agent_runs) * 100
+        rows.append(["**Non-agent**", str(n), pass_pct, fmt_pass_delta(pr, bl_rate), tamper_pct, avg_tok, avg_turns, avg_cost])
 
     md_table(headers, rows, aligns)
 
@@ -1153,8 +1187,9 @@ def print_tier_summary(results: list[dict]):
     print()
     print("### Outcomes by Treatment Tier")
     print()
-    headers = ["Tier", "Treatments", "Runs", "Pass%", "Tamper%", "Avg Tokens", "Avg Turns", "Avg Cost"]
-    aligns = ["l", "r", "r", "r", "r", "r", "r", "r"]
+    bl_rate = _baseline_pass_rate(results)
+    headers = ["Tier", "Treatments", "Runs", "Pass%", "vs BL", "Tamper%", "Avg Tokens", "Avg Turns", "Avg Cost"]
+    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r"]
     rows = []
     for tier_key in TIER_ORDER:
         runs = by_tier.get(tier_key, [])
@@ -1173,6 +1208,7 @@ def print_tier_summary(results: list[dict]):
             str(treatments),
             str(n),
             f"{pass_rate:.0f}%",
+            fmt_pass_delta(pass_rate, bl_rate),
             f"{tamper_pct:.0f}%",
             fmt_tokens(int(avg_tokens)),
             f"{avg_turns:.1f}",
@@ -1365,8 +1401,10 @@ def print_sequence_treatment_summary(seq_results: list[dict]):
     print()
     print("### Sequence Summary by Treatment")
     print()
-    headers = ["Treatment", "Runs", "All Pass%", "Avg Steps", "Avg Regressions", "Avg Tokens", "Avg Time", "Avg Cost"]
-    aligns = ["l", "r", "r", "r", "r", "r", "r", "r"]
+    bl_runs = [r for r in seq_results if r.get("treatment") == "baseline"]
+    bl_seq_rate = (sum(1 for r in bl_runs if r.get("aggregate", {}).get("all_steps_pass")) / len(bl_runs) * 100) if bl_runs else None
+    headers = ["Treatment", "Runs", "All Pass%", "vs BL", "Avg Steps", "Avg Regressions", "Avg Tokens", "Avg Time", "Avg Cost"]
+    aligns = ["l", "r", "r", "r", "r", "r", "r", "r", "r"]
     rows = []
     for treatment in sorted(by_treatment.keys()):
         runs = by_treatment[treatment]
@@ -1382,6 +1420,7 @@ def print_sequence_treatment_summary(seq_results: list[dict]):
             treatment,
             str(n),
             f"{all_pass:.0f}%",
+            fmt_pass_delta(all_pass, bl_seq_rate),
             f"{avg_steps:.1f}",
             f"{avg_regr:.1f}",
             fmt_tokens(int(avg_tokens)),
@@ -1612,6 +1651,16 @@ function fmtTokens(n) { return n >= 1000 ? Math.round(n / 1000) + 'k' : String(n
 function fmtCost(c) { return '$' + c.toFixed(2); }
 function fmtBool(b) { return b ? 'YES' : 'NO'; }
 function fmtDelta(d) { return d > 0 ? '+' + d : String(d); }
+function baselinePassRate(results) {
+  var bl = results.filter(function(r){return r.treatment==='baseline'});
+  if (!bl.length) return null;
+  return count(bl, function(r){return r.acceptance_pass}) / bl.length * 100;
+}
+function fmtPassDelta(rate, bl) {
+  if (bl == null) return '-';
+  var d = Math.round(rate - bl);
+  return (d > 0 ? '+' : '') + d + 'pp';
+}
 function fmtFloat(v, d) { return v.toFixed(d === undefined ? 1 : d); }
 function avg(arr, fn) { return arr.length === 0 ? 0 : sum(arr, fn) / arr.length; }
 function passClass(pctStr) {
@@ -2012,12 +2061,15 @@ function renderSummaryTab(el, results, seqs) {
   // Summary by Treatment
   var h = document.createElement('h3'); h.textContent = 'Summary by Treatment'; el.appendChild(h);
   var byT = groupBy(results, function(r){return r.treatment});
-  var headers = ['Treatment','Runs','Pass%','Avg Qual','Avg Blks','Skip%','Tamper%','Avg Tokens','Avg Turns','Avg Time','Avg Cost'];
-  var aligns = ['l','r','r','r','r','r','r','r','r','r','r'];
+  var bl = baselinePassRate(results);
+  var headers = ['Treatment','Runs','Pass%','vs BL','Avg Qual','Avg Blks','Skip%','Tamper%','Avg Tokens','Avg Turns','Avg Time','Avg Cost'];
+  var aligns = ['l','r','r','r','r','r','r','r','r','r','r','r'];
   var rows = [];
   sortedKeys(byT).forEach(function(t) {
     var runs = byT[t], n = runs.length;
+    var pr = count(runs,function(r){return r.acceptance_pass}) / n * 100;
     rows.push([t, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+      fmtPassDelta(pr, bl),
       fmtFloat(avg(runs,function(r){return r._quality_score||0})),
       fmtFloat(avg(runs,function(r){return r.stop_blocks||0})),
       fmtPct(count(runs,function(r){return(r.regression_skipped||0)>0}),n),
@@ -2033,13 +2085,17 @@ function renderSummaryTab(el, results, seqs) {
   if (seqs.length > 0) {
     h = document.createElement('h3'); h.textContent = 'Sequence Summary by Treatment'; el.appendChild(h);
     var byTSeq = groupBy(seqs, function(r){return r.treatment});
-    var sh = ['Treatment','Runs','All Pass%','Avg Steps','Avg Regressions','Avg Tokens','Avg Time','Avg Cost'];
-    var sa = ['l','r','r','r','r','r','r','r'];
+    var blSeqs = seqs.filter(function(r){return r.treatment==='baseline'});
+    var blSeqRate = blSeqs.length > 0 ? count(blSeqs,function(r){return r.aggregate&&r.aggregate.all_steps_pass}) / blSeqs.length * 100 : null;
+    var sh = ['Treatment','Runs','All Pass%','vs BL','Avg Steps','Avg Regressions','Avg Tokens','Avg Time','Avg Cost'];
+    var sa = ['l','r','r','r','r','r','r','r','r'];
     var sr = [];
     sortedKeys(byTSeq).forEach(function(t) {
       var runs = byTSeq[t], n = runs.length;
+      var seqPr = count(runs,function(r){return r.aggregate&&r.aggregate.all_steps_pass}) / n * 100;
       sr.push([t, n,
         fmtPct(count(runs,function(r){return r.aggregate&&r.aggregate.all_steps_pass}),n),
+        fmtPassDelta(seqPr, blSeqRate),
         fmtFloat(avg(runs,function(r){return r.num_steps||0})),
         fmtFloat(avg(runs,function(r){return(r.aggregate&&r.aggregate.prior_step_regressions)||0})),
         fmtTokens(Math.round(avg(runs,function(r){return(r.aggregate&&r.aggregate.total_tokens)||0}))),
@@ -2068,15 +2124,17 @@ function renderSummaryTab(el, results, seqs) {
   // Tier Summary
   h = document.createElement('h3'); h.textContent = 'Outcomes by Treatment Tier'; el.appendChild(h);
   var byTier = groupBy(results, function(r){return r._tier||'none'});
-  headers = ['Tier','Treatments','Runs','Pass%','Avg Qual','Tamper%','Avg Tokens','Avg Turns','Avg Cost'];
-  aligns = ['l','r','r','r','r','r','r','r','r'];
+  headers = ['Tier','Treatments','Runs','Pass%','vs BL','Avg Qual','Tamper%','Avg Tokens','Avg Turns','Avg Cost'];
+  aligns = ['l','r','r','r','r','r','r','r','r','r'];
   rows = [];
   DATA.constants.TIER_ORDER.forEach(function(tk) {
     var runs = byTier[tk]; if (!runs||!runs.length) return;
     var n = runs.length, tSet = {};
     runs.forEach(function(r){tSet[r.treatment]=1});
+    var tierPr = count(runs,function(r){return r.acceptance_pass}) / n * 100;
     rows.push([DATA.constants.TIER_LABELS[tk]||tk, Object.keys(tSet).length, n,
       fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+      fmtPassDelta(tierPr, bl),
       fmtFloat(avg(runs,function(r){return r._quality_score||0})),
       fmtPct(count(runs,function(r){return r.regression_tests_modified}),n),
       fmtTokens(Math.round(avg(runs,function(r){return r.tokens_total||0}))),
@@ -2206,12 +2264,15 @@ function renderBddTab(el, results) {
   // Engagement by Treatment
   var h = document.createElement('h3'); h.textContent = 'BDD Engagement by Treatment'; el.appendChild(h);
   var byT = groupBy(results, function(r){return r.treatment});
-  var headers = ['Treatment','Runs','Pass%','Avg Quality','MCP Calls','bdd_test','Hooks','Injected','Failed','Uniq Facets','Edits'];
-  var aligns = ['l','r','r','r','r','r','r','r','r','r','r'];
+  var bl = baselinePassRate(results);
+  var headers = ['Treatment','Runs','Pass%','vs BL','Avg Quality','MCP Calls','bdd_test','Hooks','Injected','Failed','Uniq Facets','Edits'];
+  var aligns = ['l','r','r','r','r','r','r','r','r','r','r','r'];
   var rows = [];
   sortedKeys(byT).forEach(function(t) {
     var runs = byT[t], n = runs.length;
+    var pr = count(runs,function(r){return r.acceptance_pass}) / n * 100;
     rows.push([t, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+      fmtPassDelta(pr, bl),
       fmtFloat(avg(runs,function(r){return r._quality_score||0})),
       fmtFloat(avg(runs,function(r){return r.mcp_tool_calls||0})),
       fmtFloat(avg(runs,function(r){return r.bdd_test_calls||0})),
@@ -2280,14 +2341,16 @@ function renderBddTab(el, results) {
     h = document.createElement('h3'); h.textContent = 'Hook Injection Effectiveness'; el.appendChild(h);
     var p = document.createElement('p'); p.className = 'note'; p.textContent = 'Runs with hooks only. Injection rate = injections / hook invocations.'; el.appendChild(p);
     var byTH = groupBy(hookedRuns, function(r){return r.treatment});
-    headers = ['Treatment','Runs','Pass%','Avg Begins','Avg Inj','Avg Skip','Inj Rate','Avg Facets','Avg Fail'];
-    aligns = ['l','r','r','r','r','r','r','r','r'];
+    headers = ['Treatment','Runs','Pass%','vs BL','Avg Begins','Avg Inj','Avg Skip','Inj Rate','Avg Facets','Avg Fail'];
+    aligns = ['l','r','r','r','r','r','r','r','r','r'];
     rows = [];
     sortedKeys(byTH).forEach(function(t) {
       var runs = byTH[t], n = runs.length;
       var tBegins = sum(runs,function(r){return r.hook_begins||0});
       var tInj = sum(runs,function(r){return r.hook_injections||0});
+      var hpr = count(runs,function(r){return r.acceptance_pass}) / n * 100;
       rows.push([t, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+        fmtPassDelta(hpr, bl),
         fmtFloat(avg(runs,function(r){return r.hook_begins||0})),
         fmtFloat(avg(runs,function(r){return r.hook_injections||0})),
         fmtFloat(avg(runs,function(r){return r.hook_skips||0})),
@@ -2303,14 +2366,16 @@ function renderBddTab(el, results) {
     var byVar = groupBy(hookedRuns, function(r){return r._hook_variant||'none'});
     if (Object.keys(byVar).length >= 2) {
       h = document.createElement('h3'); h.textContent = 'Hook Variant Comparison'; el.appendChild(h);
-      headers = ['Variant','Runs','Pass%','Inj Rate','Avg Facets','Avg Tokens','Avg Cost'];
-      aligns = ['l','r','r','r','r','r','r'];
+      headers = ['Variant','Runs','Pass%','vs BL','Inj Rate','Avg Facets','Avg Tokens','Avg Cost'];
+      aligns = ['l','r','r','r','r','r','r','r'];
       rows = [];
       sortedKeys(byVar).forEach(function(v) {
         var runs = byVar[v], n = runs.length;
         var tBegins = sum(runs,function(r){return r.hook_begins||0});
         var tInj = sum(runs,function(r){return r.hook_injections||0});
+        var vpr = count(runs,function(r){return r.acceptance_pass}) / n * 100;
         rows.push([v, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+          fmtPassDelta(vpr, bl),
           tBegins>0?fmtPct(tInj,tBegins):'-',
           fmtFloat(avg(runs,function(r){return r.hook_unique_facets||0})),
           fmtTokens(Math.round(avg(runs,function(r){return r.tokens_total||0}))),
@@ -2344,12 +2409,14 @@ function renderBddTab(el, results) {
     h = document.createElement('h3'); h.textContent = 'MCP Tool Usage Patterns'; el.appendChild(h);
     p = document.createElement('p'); p.className = 'note'; p.textContent = 'Runs with MCP tool calls only.'; el.appendChild(p);
     var byTM = groupBy(mcpRuns, function(r){return r.treatment});
-    headers = ['Treatment','Runs','Pass%','bdd_test','bdd_motiv','bdd_locate','bdd_status','Total MCP'];
-    aligns = ['l','r','r','r','r','r','r','r'];
+    headers = ['Treatment','Runs','Pass%','vs BL','bdd_test','bdd_motiv','bdd_locate','bdd_status','Total MCP'];
+    aligns = ['l','r','r','r','r','r','r','r','r'];
     rows = [];
     sortedKeys(byTM).forEach(function(t) {
       var runs = byTM[t], n = runs.length;
+      var mpr = count(runs,function(r){return r.acceptance_pass}) / n * 100;
       rows.push([t, n, fmtPct(count(runs,function(r){return r.acceptance_pass}),n),
+        fmtPassDelta(mpr, bl),
         fmtFloat(avg(runs,function(r){return r.bdd_test_calls||0})),
         fmtFloat(avg(runs,function(r){return r.bdd_motivation_calls||0})),
         fmtFloat(avg(runs,function(r){return r.bdd_locate_calls||0})),
@@ -2407,18 +2474,21 @@ function renderBddTab(el, results) {
     h = document.createElement('h3'); h.textContent = 'Agent-Based Treatment Outcomes'; el.appendChild(h);
     var nonAgentRuns = results.filter(function(r){return !r._has_agents});
     var byTA = groupBy(agentRuns, function(r){return r.treatment});
-    headers = ['Category','Runs','Pass%','Tamper%','Avg Tokens','Avg Turns','Avg Cost'];
-    aligns = ['l','r','r','r','r','r','r'];
+    headers = ['Category','Runs','Pass%','vs BL','Tamper%','Avg Tokens','Avg Turns','Avg Cost'];
+    aligns = ['l','r','r','r','r','r','r','r'];
     rows = [];
     sortedKeys(byTA).forEach(function(t) {
-      var s = bucketStats(byTA[t]);
-      rows.push(['  '+t, s.n, s.passPct, s.tamperPct, s.avgTokens, s.avgTurns, s.avgCost]);
+      var runs = byTA[t], s = bucketStats(runs);
+      var apr = count(runs,function(r){return r.acceptance_pass}) / runs.length * 100;
+      rows.push(['  '+t, s.n, s.passPct, fmtPassDelta(apr, bl), s.tamperPct, s.avgTokens, s.avgTurns, s.avgCost]);
     });
     var sa = bucketStats(agentRuns);
-    rows.push(['All agents', sa.n, sa.passPct, sa.tamperPct, sa.avgTokens, sa.avgTurns, sa.avgCost]);
+    var sapr = count(agentRuns,function(r){return r.acceptance_pass}) / agentRuns.length * 100;
+    rows.push(['All agents', sa.n, sa.passPct, fmtPassDelta(sapr, bl), sa.tamperPct, sa.avgTokens, sa.avgTurns, sa.avgCost]);
     if (nonAgentRuns.length > 0) {
       var sn = bucketStats(nonAgentRuns);
-      rows.push(['Non-agent', sn.n, sn.passPct, sn.tamperPct, sn.avgTokens, sn.avgTurns, sn.avgCost]);
+      var snpr = count(nonAgentRuns,function(r){return r.acceptance_pass}) / nonAgentRuns.length * 100;
+      rows.push(['Non-agent', sn.n, sn.passPct, fmtPassDelta(snpr, bl), sn.tamperPct, sn.avgTokens, sn.avgTurns, sn.avgCost]);
     }
     renderTable(el, headers, rows, aligns);
   }
